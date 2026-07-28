@@ -1,16 +1,4 @@
---[[
-  FIXED VERSION - Mine a Mountain
-  Changes:
-  1. Safe WindUI loading (prevents nil call from failed HttpGet)
-  2. Better error reporting
-  3. Kept original logic intact
-  
-  If you still get "Out of local registers exceeded limit 200":
-  - This is a Luau hard limit (max 200 local vars per function/scope)
-  - The original script is very large and hits it on some executors
-  - Solution: use an executor that is more lenient, or run the script in parts
-]]
-
+-- Pretest
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
@@ -1926,7 +1914,7 @@ local function sFLY(vfly)
             end
             
             BG.CFrame = camera.CFrame
-        until not FLY.FLYING)
+        until not FLY.FLYING
         
         CONTROL = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
         lCONTROL = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
