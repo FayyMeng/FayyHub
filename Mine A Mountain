@@ -263,7 +263,7 @@ local speedConn
 local minValue = 2000000
 local minLuck = 0
 local valueFilter = true
-local luckFilter = true
+local luckFilter = false
 local espMode = "value"
 local espScale = 0.7
 local playerScale = 0.6
@@ -571,7 +571,8 @@ local function meetsLuckFilter(inst)
     if not luckFilter then
         return true
     end
-    return crystalLuck(inst) >= minLuck
+    local luck = crystalLuck(inst)
+    return luck >= minLuck
 end
 
 local function meetsCrystalFilter(inst)
@@ -2541,8 +2542,7 @@ do
             for _, container in ipairs(boulderRoots()) do
                 for _, child in ipairs(container:GetChildren()) do
                     local kind = boulderKind(child)
-                    if kind then
-                        fn(child, kind)
+                    if kind then                        fn(child, kind)
                     end
                 end
             end
@@ -3335,2592 +3335,932 @@ do
     install()
 end
 
-do
-    local function install()
-        local CrystalBox = Tabs.crystals:Section({ Title = "Crystal ESP", Icon = "gem", Opened = true })
+local CrystalBox = Tabs.crystals:Section({ Title = "Crystal ESP", Icon = "gem", Opened = true })
 
-        CrystalBox:Toggle({
-            Title = "Crystal ESP",
-            Desc = "Show crystal ESP",
-            Value = false,
-            Callback = function(value)
-                espActive = value
-                if not value then
-                    clearEsp()
-                end
-                updateTracking()
-            end
-        })
-
-        CrystalBox:Dropdown({
-            Title = "ESP Mode",
-            Desc = "Filter crystals by Value or Luck",
-            Values = { "Value", "Luck" },
-            Value = { "Value" },
-            Multi = false,
-            AllowNone = false,
-            Callback = function(option)
-                if type(option) == "table" and option[1] then
-                    espMode = option[1]:lower()
-                elseif type(option) == "string" then
-                    espMode = option:lower()
-                end
-                if espMode == "luck" then
-                    valueFilter = false
-                    luckFilter = minLuck > 0
-                else
-                    valueFilter = minValue > 0
-                    luckFilter = false
-                end
-                requestRefresh()
-            end
-        })
-
-        CrystalBox:Slider({
-            Title = "Crystal Size",
-            Desc = "Adjust crystal ESP size",
-            Step = 1,
-            Value = {
-                Min = 40,
-                Max = 250,
-                Default = 70,
-            },
-            Callback = function(value)
-                espScale = value / 100
-                applyEspScale()
-            end
-        })
-
-        CrystalBox:Divider()
-
-        CrystalBox:Paragraph({
-            Title = "Min Value",
-            Desc = "Example: 500k, 2m, 1.5b. Empty shows everything (Value mode only)",
-        })
-
-        local function setMinValue(text)
-            local parsed = parseValue(text)
-            if not parsed then
-                return
-            end
-
-            minValue = math.max(parsed, 0)
-            valueFilter = minValue > 0
-            if espMode == "value" then
-                requestRefresh()
-            end
+CrystalBox:Toggle({
+    Title = "Crystal ESP",
+    Desc = "Show crystal ESP",
+    Value = false,
+    Callback = function(value)
+        espActive = value
+        if not value then
+            clearEsp()
         end
+        updateTracking()
+    end
+})
 
-        CrystalBox:Input({
-            Title = "Min Value",
-            Desc = "Hide crystals worth less than this",
-            Value = "2m",
-            Placeholder = "2m",
-            Type = "Input",
-            Callback = setMinValue
-        })
-
-        CrystalBox:Paragraph({
-            Title = "Min Luck",
-            Desc = "Example: 50, 100, 250. Empty shows everything (Luck mode only)",
-        })
-
-        local function setMinLuck(text)
-            local parsed = parseLuck(text)
-            if not parsed then
-                return
-            end
-
-            minLuck = parsed
+CrystalBox:Dropdown({
+    Title = "ESP Mode",
+    Desc = "Filter crystals by Value or Luck",
+    Values = { "Value", "Luck" },
+    Value = { "Value" },
+    Multi = false,
+    AllowNone = false,
+    Callback = function(option)
+        if type(option) == "table" and option[1] then
+            espMode = option[1]:lower()
+        elseif type(option) == "string" then
+            espMode = option:lower()
+        end
+        if espMode == "luck" then
+            valueFilter = false
             luckFilter = minLuck > 0
-            if espMode == "luck" then
-                requestRefresh()
+        else
+            valueFilter = minValue > 0
+            luckFilter = false
+        end
+        requestRefresh()
+    end
+})
+
+CrystalBox:Slider({
+    Title = "Crystal Size",
+    Desc = "Adjust crystal ESP size",
+    Step = 1,
+    Value = {
+        Min = 40,
+        Max = 250,
+        Default = 70,
+    },
+    Callback = function(value)
+        espScale = value / 100
+        applyEspScale()
+    end
+})
+
+CrystalBox:Divider()
+
+CrystalBox:Paragraph({
+    Title = "Min Value",
+    Desc = "Example: 500k, 2m, 1.5b. Empty shows everything (Value mode only)",
+})
+
+local function setMinValue(text)
+    local parsed = parseValue(text)
+    if not parsed then
+        return
+    end
+
+    minValue = math.max(parsed, 0)
+    valueFilter = minValue > 0
+    if espMode == "value" then
+        requestRefresh()
+    end
+end
+
+CrystalBox:Input({
+    Title = "Min Value",
+    Desc = "Hide crystals worth less than this",
+    Value = "2m",
+    Placeholder = "2m",
+    Type = "Input",
+    Callback = setMinValue
+})
+
+CrystalBox:Paragraph({
+    Title = "Min Luck",
+    Desc = "Example: 50, 100, 250. Empty shows everything (Luck mode only)",
+})
+
+local function setMinLuck(text)
+    local parsed = parseLuck(text)
+    if not parsed then
+        return
+    end
+
+    minLuck = parsed
+    luckFilter = minLuck > 0
+    if espMode == "luck" then
+        requestRefresh()
+    end
+end
+
+CrystalBox:Input({
+    Title = "Min Luck %",
+    Desc = "Hide crystals with luck less than this",
+    Value = "",
+    Placeholder = "50",
+    Type = "Input",
+    Callback = setMinLuck
+})
+
+StatsLabel = CrystalBox:Paragraph({
+    Title = "Stats",
+    Desc = "Tracking: 0  |  Shown: 0",
+})
+
+function StatsLabel:SetText(text)
+    self.Desc = text
+end
+
+local PlayerBox = Tabs.players:Section({ Title = "Player ESP", Icon = "users", Opened = true })
+
+PlayerBox:Toggle({
+    Title = "Player ESP",
+    Desc = "Show player ESP",
+    Value = false,
+    Callback = function(value)
+        playerEspActive = value
+        if not value then
+            clearPlayerEsp()
+        end
+    end
+})
+
+PlayerBox:Slider({
+    Title = "Player Size",
+    Desc = "Adjust player ESP size",
+    Step = 1,
+    Value = {
+        Min = 40,
+        Max = 250,
+        Default = 60,
+    },
+    Callback = function(value)
+        playerScale = value / 100
+        applyPlayerScale()
+    end
+})
+
+local BoulderBox = Tabs.boulders:Section({ Title = "Boulder ESP", Icon = "mountain", Opened = true })
+
+BoulderBox:Toggle({
+    Title = "Boulder ESP",
+    Desc = "Show boulder ESP",
+    Value = false,
+    Callback = Mountain.setBoulderEsp
+})
+
+BoulderBox:Slider({
+    Title = "Boulder Size",
+    Desc = "Adjust boulder ESP size",
+    Step = 1,
+    Value = {
+        Min = 40,
+        Max = 250,
+        Default = 60,
+    },
+    Callback = function(value)
+        boulderScale = value / 100
+        Mountain.applyScale()
+    end
+})
+
+for _, text in ipairs(Mountain.boulderList()) do
+    BoulderBox:Paragraph({
+        Title = "Boulder Info",
+        Desc = text,
+    })
+end
+
+local FarmBox = Tabs.boulders:Section({ Title = "Boulder Farm", Icon = "bot", Opened = true })
+
+FarmBox:Paragraph({
+    Title = "Rune Farming",
+    Desc = "Specialized in rune farming",
+})
+
+FarmBox:Dropdown({
+    Title = "Targets",
+    Desc = "Select boulder types to farm",
+    Values = { "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite" },
+    Multi = true,
+    AllowNone = true,
+    Callback = function(value)
+        local targets = {}
+        if type(value) == "table" then
+            for _, v in ipairs(value) do
+                targets[v] = true
             end
         end
+        Farm.targets = targets
+    end
+})
 
-        CrystalBox:Input({
-            Title = "Min Luck %",
-            Desc = "Hide crystals with luck less than this",
-            Value = "",
-            Placeholder = "50",
-            Type = "Input",
-            Callback = setMinLuck
-        })
+FarmBox:Toggle({
+    Title = "Auto Farm",
+    Desc = "Automatically farm boulders",
+    Value = false,
+    Callback = function(value)
+        if not value then
+            Farm.stop()
+            return
+        end
 
-        StatsLabel = CrystalBox:Paragraph({
-            Title = "Stats",
-            Desc = "Tracking: 0  |  Shown: 0",
-        })
+        if not Farm.targets or not next(Farm.targets) then
+            WindUI:Notify({
+                Title = "Mine a Mountain",
+                Content = "Pick at least one boulder",
+                Duration = 2,
+                Icon = "alert-circle",
+            })
+            return
+        end
 
-        function StatsLabel:SetText(text)
-            self.Desc = text
+        Farm.active = true
+        Farm.phase = "scan"
+        Farm.waitUntil = 0
+        Farm.target = nil
+        Farm.anchor = nil
+        Farm.lastSpot = nil
+        Farm.swingClock = 0
+        Farm.equipClock = 0
+        Farm.hpMark = nil
+        Farm.dryRounds = 0
+        Farm.spotFrame = nil
+        Farm.aimTurn = 0
+        Farm.blindClock = 0
+        Farm.lostClock = 0
+        Farm.dryClock = 0
+        Farm.probeIndex = 0
+        Farm.scanned = false
+        Farm.scanIndex = 0
+        Farm.heldPick = nil
+        Farm.pendingFinish = false
+        Farm.lootUntil = 0
+        Farm.statusText = "Starting"
+
+        Move.setFly(false)
+        Move.setNoclip(true)
+        Mountain.setAutoGrab(true)
+    end
+})
+
+local StatusLabel = FarmBox:Paragraph({
+    Title = "Status",
+    Desc = "Idle",
+})
+
+Farm.statusText = "Idle"
+Farm.active = false
+Farm.targets = {}
+
+local labelClock = 0
+
+farmConn = RunService.Heartbeat:Connect(function(deltaTime)
+    if Farm.active then
+        local ok, err = pcall(Farm.step, deltaTime)
+        if not ok then
+            reportError("boulderFarm", err)
         end
     end
 
-    install()
-end
-
-do
-    local function install()
-        local PlayerBox = Tabs.players:Section({ Title = "Player ESP", Icon = "users", Opened = true })
-
-        PlayerBox:Toggle({
-            Title = "Player ESP",
-            Desc = "Show player ESP",
-            Value = false,
-            Callback = function(value)
-                playerEspActive = value
-                if not value then
-                    clearPlayerEsp()
-                end
-            end
-        })
-
-        PlayerBox:Slider({
-            Title = "Player Size",
-            Desc = "Adjust player ESP size",
-            Step = 1,
-            Value = {
-                Min = 40,
-                Max = 250,
-                Default = 60,
-            },
-            Callback = function(value)
-                playerScale = value / 100
-                applyPlayerScale()
-            end
-        })
+    labelClock += deltaTime
+    if labelClock >= 0.25 then
+        labelClock = 0
+        StatusLabel.Desc = Farm.statusText or "Idle"
     end
+end)
 
-    install()
-end
+local TeleportBox = Tabs.teleports:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
 
-do
-    local function install()
-        local BoulderBox = Tabs.boulders:Section({ Title = "Boulder ESP", Icon = "mountain", Opened = true })
+TeleportBox:Toggle({
+    Title = "Aim Teleport",
+    Desc = "Aim at crystal and press key to teleport",
+    Value = false,
+    Callback = function(value)
+        aimTpEnabled = value
+    end
+})
 
-        BoulderBox:Toggle({
-            Title = "Boulder ESP",
-            Desc = "Show boulder ESP",
-            Value = false,
-            Callback = Mountain.setBoulderEsp
-        })
+TeleportBox:Keybind({
+    Title = "Aim Teleport Key",
+    Desc = "Key to teleport to aimed crystal",
+    Value = "F",
+    Callback = function(v) end
+})
 
-        BoulderBox:Slider({
-            Title = "Boulder Size",
-            Desc = "Adjust boulder ESP size",
-            Step = 1,
-            Value = {
-                Min = 40,
-                Max = 250,
-                Default = 60,
-            },
-            Callback = function(value)
-                boulderScale = value / 100
-                Mountain.applyScale()
-            end
-        })
+TeleportBox:Divider()
 
-        for _, text in ipairs(Mountain.boulderList()) do
-            BoulderBox:Paragraph({
-                Title = "Boulder Info",
-                Desc = text,
+TeleportBox:Dropdown({
+    Title = "Top Crystal Teleport",
+    Desc = "Select top crystal type to teleport",
+    Values = { "Top 1 Value", "Top 2 Value", "Top 3 Value", "Top 1 Luck", "Top 2 Luck", "Top 3 Luck", "Top 1 Weight", "Top 2 Weight", "Top 3 Weight" },
+    Value = { "Top 1 Value" },
+    Multi = false,
+    AllowNone = false,
+    Callback = function(option)
+        local selected = type(option) == "table" and option[1] or option
+        local rank = tonumber(selected:match("(%d+)")) or 1
+        local mode = selected:match("(%a+)")
+        
+        if mode == "Value" then
+            tpToRank(crystalValue, rank, function(_, score) return formatShort(score, "$") end)
+        elseif mode == "Luck" then
+            tpToRank(crystalLuck, rank, function(_, score) return formatLuck(score) end)
+        elseif mode == "Weight" then
+            tpToRank(crystalWeight, rank, function(inst) return formatWeight(crystalWeight(inst)) end)
+        end
+    end
+})
+
+TeleportBox:Button({
+    Title = "TP Home",
+    Desc = "Teleport to home",
+    Callback = function()
+        if fireRemote(GoHome, "home") then
+            WindUI:Notify({
+                Title = "Mine a Mountain",
+                Content = "Teleporting home",
+                Duration = 2,
+                Icon = "check",
+            })
+        else
+            WindUI:Notify({
+                Title = "Mine a Mountain",
+                Content = "Remote unavailable",
+                Duration = 2,
+                Icon = "alert-circle",
             })
         end
     end
+})
 
-    install()
-end
-
-do
-    local function install()
-        local TopBox = Tabs.teleports:Section({ Title = "Top Crystals", Icon = "trophy", Opened = true })
-
-        local function fmtValue(_, score)
-            return formatShort(score, "$")
-        end
-
-        local function fmtLuck(_, score)
-            return formatLuck(score)
-        end
-
-        local function fmtWeight(inst)
-            return formatWeight(crystalWeight(inst))
-        end
-
-        for rank = 1, 3 do
-            TopBox:Button({
-                Title = string.format("Top %d Value", rank),
-                Desc = "Teleport to highest value crystal",
-                Callback = function()
-                    tpToRank(crystalValue, rank, fmtValue)
-                end
+TeleportBox:Button({
+    Title = "Sell All",
+    Desc = "Sell all crystals",
+    Callback = function()
+        if doSell() then
+            WindUI:Notify({
+                Title = "Mine a Mountain",
+                Content = "Selling all crystals",
+                Duration = 2,
+                Icon = "check",
             })
         end
-
-        for rank = 1, 3 do
-            TopBox:Button({
-                Title = string.format("Top %d Luck", rank),
-                Desc = "Teleport to highest luck crystal",
-                Callback = function()
-                    tpToRank(crystalLuck, rank, fmtLuck)
-                end
-            })
-        end
-
-        for rank = 1, 3 do
-            TopBox:Button({
-                Title = string.format("Top %d Weight", rank),
-                Desc = "Teleport to highest weight crystal",
-                Callback = function()
-                    tpToRank(crystalWeight, rank, fmtWeight)
-                end
-            })
-        end
-
-        local TeleportBox = Tabs.teleports:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
-
-        TeleportBox:Toggle({
-            Title = "Aim Teleport",
-            Desc = "Aim at crystal and press key to teleport",
-            Value = false,
-            Callback = function(value)
-                aimTpEnabled = value
-            end
-        })
-
-        TeleportBox:Keybind({
-            Title = "Aim Teleport Key",
-            Desc = "Key to teleport to aimed crystal",
-            Value = "F",
-            Callback = function(v) end
-        })
-
-        TeleportBox:Button({
-            Title = "TP Home",
-            Desc = "Teleport to home",
-            Callback = function()
-                if fireRemote(GoHome, "home") then
-                    WindUI:Notify({
-                        Title = "Mine a Mountain",
-                        Content = "Teleporting home",
-                        Duration = 2,
-                        Icon = "check",
-                    })
-                else
-                    WindUI:Notify({
-                        Title = "Mine a Mountain",
-                        Content = "Remote unavailable",
-                        Duration = 2,
-                        Icon = "alert-circle",
-                    })
-                end
-            end
-        })
-
-        TeleportBox:Button({
-            Title = "Sell All",
-            Desc = "Sell all crystals",
-            Callback = function()
-                if doSell() then
-                    WindUI:Notify({
-                        Title = "Mine a Mountain",
-                        Content = "Selling all crystals",
-                        Duration = 2,
-                        Icon = "check",
-                    })
-                end
-            end
-        })
     end
+})
 
-    install()
+local PickupBox = Tabs.farming:Section({ Title = "Pickup", Icon = "pickaxe", Opened = true })
+
+PickupBox:Toggle({
+    Title = "Auto Pickup",
+    Desc = "Automatically pickup crystals",
+    Value = false,
+    Callback = function(value)
+        autoPickupActive = value
+    end
+})
+
+PickupBox:Toggle({
+    Title = "Instant Prompt",
+    Desc = "Instant crystal pickup prompt",
+    Value = false,
+    Callback = setInstantPrompt
+})
+
+PickupBox:Toggle({
+    Title = "Auto Rune Pickup",
+    Desc = "Automatically pickup runes",
+    Value = false,
+    Callback = Mountain.setAutoGrab
+})
+
+BackpackLabel = PickupBox:Paragraph({
+    Title = "Backpack",
+    Desc = "Bag 0.0 / 0.0 kg",
+})
+
+function BackpackLabel:SetText(text)
+    self.Desc = text
 end
 
-do
-    local function install()
-        local PickupBox = Tabs.farming:Section({ Title = "Pickup", Icon = "pickaxe", Opened = true })
+local MoneyBox = Tabs.farming:Section({ Title = "Money Farm", Icon = "banknote", Opened = true })
 
-        PickupBox:Toggle({
-            Title = "Auto Pickup",
-            Desc = "Automatically pickup crystals",
-            Value = false,
-            Callback = function(value)
-                autoPickupActive = value
-            end
-        })
+MoneyBox:Paragraph({
+    Title = "Money Farming",
+    Desc = "Loads the mountain and digs from the peak downwards",
+})
 
-        PickupBox:Toggle({
-            Title = "Instant Prompt",
-            Desc = "Instant crystal pickup prompt",
-            Value = false,
-            Callback = setInstantPrompt
-        })
+MoneyBox:Toggle({
+    Title = "Auto Farm",
+    Desc = "Automatically farm money",
+    Value = false,
+    Callback = function(value)
+        if not value then
+            Money.stop()
+            return
+        end
 
-        PickupBox:Toggle({
-            Title = "Auto Rune Pickup",
-            Desc = "Automatically pickup runes",
-            Value = false,
-            Callback = Mountain.setAutoGrab
-        })
+        Money.active = true
+        Money.target = nil
+        Money.columnY = nil
+        Money.columnDry = 0
+        Money.columnSwings = 0
+        Money.surfaceClock = 0
+        Money.peakClock = 0
+        Money.scanIndex = 0
+        Money.scanUntil = 0
+        Money.loaded = false
+        Money.loot = nil
+        Money.lootClock = 0
+        Money.lootHp = nil
+        Money.lootMax = nil
+        Money.lootBlocked = false
+        Money.swingClock = 0
+        Money.equipClock = 0
+        Money.sellSpot = nil
+        Money.sellUntil = 0
+        Money.heldPick = nil
+        Money.statusText = "Starting"
 
-        BackpackLabel = PickupBox:Paragraph({
-            Title = "Backpack",
-            Desc = "Bag 0.0 / 0.0 kg",
-        })
+        Move.setFly(false)
+        Move.setNoclip(true)
+        Mountain.setAutoGrab(true)
+    end
+})
 
-        function BackpackLabel:SetText(text)
-            self.Desc = text
+MoneyBox:Toggle({
+    Title = "Auto Sell At 50%",
+    Desc = "Sell when backpack is 50% full",
+    Value = false,
+    Callback = function(value)
+        Money.autoSell = value
+    end
+})
+
+local MoneyStatusLabel = MoneyBox:Paragraph({
+    Title = "Status",
+    Desc = "Idle",
+})
+
+Money.active = false
+Money.autoSell = false
+Money.statusText = "Idle"
+
+local moneyLabelClock = 0
+
+moneyConn = RunService.Heartbeat:Connect(function(deltaTime)
+    if Money.active then
+        local ok, err = pcall(Money.step, deltaTime)
+        if not ok then
+            reportError("moneyFarm", err)
         end
     end
 
-    install()
-end
-
-do
-    local function install()
-        local MoveBox = Tabs.movement:Section({ Title = "Movement", Icon = "zap", Opened = true })
-
-        MoveBox:Toggle({
-            Title = "Speed Boost",
-            Desc = "Increase movement speed",
-            Value = false,
-            Callback = setSpeedBoost
-        })
-
-        MoveBox:Toggle({
-            Title = "Noclip",
-            Desc = "Walk through walls",
-            Value = false,
-            Callback = Move.setNoclip
-        })
-
-        MoveBox:Toggle({
-            Title = "Inf Jump",
-            Desc = "Infinite jumps",
-            Value = false,
-            Callback = Move.setInfJump
-        })
-
-        MoveBox:Toggle({
-            Title = "Fly",
-            Desc = "Enable flight",
-            Value = false,
-            Callback = Move.setFly
-        })
-
-        MoveBox:Slider({
-            Title = "Fly Speed",
-            Desc = "Adjust flight speed",
-            Step = 1,
-            Value = {
-                Min = 20,
-                Max = 300,
-                Default = 100,
-            },
-            Callback = Move.setFlySpeed
-        })
+    moneyLabelClock += deltaTime
+    if moneyLabelClock >= 0.25 then
+        moneyLabelClock = 0
+        MoneyStatusLabel.Desc = Money.statusText or "Idle"
     end
+end)
 
-    install()
-end
+local MoveBox = Tabs.movement:Section({ Title = "Movement", Icon = "zap", Opened = true })
+
+MoveBox:Toggle({
+    Title = "Speed Boost",
+    Desc = "Increase movement speed",
+    Value = false,
+    Callback = setSpeedBoost
+})
+
+MoveBox:Toggle({
+    Title = "Noclip",
+    Desc = "Walk through walls",
+    Value = false,
+    Callback = Move.setNoclip
+})
+
+MoveBox:Toggle({
+    Title = "Inf Jump",
+    Desc = "Infinite jumps",
+    Value = false,
+    Callback = Move.setInfJump
+})
+
+MoveBox:Toggle({
+    Title = "Fly",
+    Desc = "Enable flight",
+    Value = false,
+    Callback = Move.setFly
+})
+
+MoveBox:Slider({
+    Title = "Fly Speed",
+    Desc = "Adjust flight speed",
+    Step = 1,
+    Value = {
+        Min = 20,
+        Max = 300,
+        Default = 100,
+    },
+    Callback = Move.setFlySpeed
+})
 
 local aimInputConn
 
 do
-    local function install()
-        local MOUSE_KEYS = {
-            [Enum.UserInputType.MouseButton1] = "MB1",
-            [Enum.UserInputType.MouseButton2] = "MB2",
-            [Enum.UserInputType.MouseButton3] = "MB3",
-        }
+    local MOUSE_KEYS = {
+        [Enum.UserInputType.MouseButton1] = "MB1",
+        [Enum.UserInputType.MouseButton2] = "MB2",
+        [Enum.UserInputType.MouseButton3] = "MB3",
+    }
 
-        local function pressedKeyName(input)
-            local pressed = MOUSE_KEYS[input.UserInputType]
-            if not pressed and input.UserInputType == Enum.UserInputType.Keyboard then
-                pressed = input.KeyCode.Name
-            end
-            return pressed
+    local function pressedKeyName(input)
+        local pressed = MOUSE_KEYS[input.UserInputType]
+        if not pressed and input.UserInputType == Enum.UserInputType.Keyboard then
+            pressed = input.KeyCode.Name
         end
-
-        local aimKeybind = "F"
-
-        aimInputConn = UserInputService.InputBegan:Connect(function(input, processed)
-            if processed then
-                return
-            end
-            if UserInputService:GetFocusedTextBox() then
-                return
-            end
-
-            local pressed = pressedKeyName(input)
-            if not pressed then
-                return
-            end
-
-            if instantPromptActive and pressed == "E" then
-                local ok, err = pcall(instantGrab)
-                if not ok then
-                    reportError("instant", err)
-                end
-            end
-
-            if not aimTpEnabled then
-                return
-            end
-
-            if pressed == aimKeybind then
-                local ok, err = pcall(aimTeleport)
-                if not ok then
-                    reportError("aim", err)
-                end
-            end
-        end)
-
-        local function updateKeybind(key)
-            aimKeybind = key
-        end
-
-        local TeleportBox = Tabs.teleports:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
-        TeleportBox:Keybind({
-            Title = "Aim Teleport Key",
-            Desc = "Key to teleport to aimed crystal",
-            Value = "F",
-            Callback = function(v)
-                updateKeybind(v)
-            end
-        })
+        return pressed
     end
 
-    install()
+    local aimKeybind = "F"
+
+    aimInputConn = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then
+            return
+        end
+        if UserInputService:GetFocusedTextBox() then
+            return
+        end
+
+        local pressed = pressedKeyName(input)
+        if not pressed then
+            return
+        end
+
+        if instantPromptActive and pressed == "E" then
+            local ok, err = pcall(instantGrab)
+            if not ok then
+                reportError("instant", err)
+            end
+        end
+
+        if not aimTpEnabled then
+            return
+        end
+
+        if pressed == aimKeybind then
+            local ok, err = pcall(aimTeleport)
+            if not ok then
+                reportError("aim", err)
+            end
+        end
+    end)
+
+    local function updateKeybind(key)
+        aimKeybind = key
+    end
+
+    TeleportBox:Keybind({
+        Title = "Aim Teleport Key",
+        Desc = "Key to teleport to aimed crystal",
+        Value = "F",
+        Callback = function(v)
+            updateKeybind(v)
+        end
+    })
 end
 
 local Net = {}
 local netConns = {}
 
 do
-    local function install()
-        local HttpService = game:GetService("HttpService")
-        local TeleportService = game:GetService("TeleportService")
-        local GuiService = game:GetService("GuiService")
-        local PLACE = game.PlaceId
-        local PAGES = 1
-        local POOL_TARGET = 20
-        local RETRY_STEP = 1.5
-        local RETRY_LIMIT = 10
-        local BACK_DELAY = 3
-        local REFILL_MARK = 8
-        local WARM_STEP = 30
+    local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local GuiService = game:GetService("GuiService")
+    local PLACE = game.PlaceId
+    local PAGES = 1
+    local POOL_TARGET = 20
+    local RETRY_STEP = 1.5
+    local RETRY_LIMIT = 10
+    local BACK_DELAY = 3
+    local REFILL_MARK = 8
+    local WARM_STEP = 30
 
-        local visited = {}
-        local pool = {}
-        local hopping = false
-        local reviving = false
-        local lastCode = 0
-        local alive = true
+    local visited = {}
+    local pool = {}
+    local hopping = false
+    local reviving = false
+    local lastCode = 0
+    local alive = true
 
-        local function note(text)
-            pcall(function()
-                WindUI:Notify({
-                    Title = "Hop",
-                    Content = text,
-                    Duration = 4,
-                    Icon = "globe",
-                })
+    local function note(text)
+        pcall(function()
+            WindUI:Notify({
+                Title = "Hop",
+                Content = text,
+                Duration = 4,
+                Icon = "globe",
+            })
+        end)
+    end
+
+    local function grab(link)
+        local sender = (syn and syn.request) or (http and http.request) or http_request or request
+
+        if type(sender) == "function" then
+            local ok, response = pcall(function()
+                return sender({ Url = link, Method = "GET" })
             end)
-        end
 
-        local function grab(link)
-            local sender = (syn and syn.request) or (http and http.request) or http_request or request
+            if ok and type(response) == "table" then
+                local code = tonumber(response.StatusCode) or 0
 
-            if type(sender) == "function" then
-                local ok, response = pcall(function()
-                    return sender({ Url = link, Method = "GET" })
-                end)
-
-                if ok and type(response) == "table" then
-                    local code = tonumber(response.StatusCode) or 0
-
-                    if code >= 200 and code < 300 and type(response.Body) == "string" then
-                        return response.Body, code
-                    end
-
-                    return nil, code
+                if code >= 200 and code < 300 and type(response.Body) == "string" then
+                    return response.Body, code
                 end
+
+                return nil, code
             end
-
-            local ok, body = pcall(function()
-                return game:HttpGet(link)
-            end)
-
-            if ok and type(body) == "string" then
-                return body, 200
-            end
-
-            return nil, 0
         end
 
-        local function fetch(cursor)
-            local link = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&excludeFullGames=true&limit=100", PLACE)
+        local ok, body = pcall(function()
+            return game:HttpGet(link)
+        end)
 
-            if type(cursor) == "string" and cursor ~= "" then
-                link ..= "&cursor=" .. cursor
-            end
-
-            local body, code = grab(link)
-
-            if type(body) ~= "string" then
-                lastCode = code or 0
-                return nil, nil
-            end
-
-            lastCode = 200
-
-            local parsed, data = pcall(function()
-                return HttpService:JSONDecode(body)
-            end)
-
-            if not parsed or type(data) ~= "table" then
-                lastCode = -1
-                return nil, nil
-            end
-
-            return data.data, data.nextPageCursor
+        if ok and type(body) == "string" then
+            return body, 200
         end
 
-        local function refill()
-            table.clear(pool)
+        return nil, 0
+    end
 
-            local cursor
+    local function fetch(cursor)
+        local link = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&excludeFullGames=true&limit=100", PLACE)
 
-            for _ = 1, PAGES do
-                local entries, nextCursor = fetch(cursor)
+        if type(cursor) == "string" and cursor ~= "" then
+            link ..= "&cursor=" .. cursor
+        end
 
-                if type(entries) == "table" then
-                    for _, entry in ipairs(entries) do
-                        local id = type(entry) == "table" and entry.id or nil
+        local body, code = grab(link)
 
-                        if type(id) == "string" and id ~= game.JobId and not visited[id] then
-                            local playing = tonumber(entry.playing) or 0
-                            local room = tonumber(entry.maxPlayers) or 0
+        if type(body) ~= "string" then
+            lastCode = code or 0
+            return nil, nil
+        end
 
-                            if room == 0 or playing < room then
-                                pool[#pool + 1] = id
-                            end
+        lastCode = 200
+
+        local parsed, data = pcall(function()
+            return HttpService:JSONDecode(body)
+        end)
+
+        if not parsed or type(data) ~= "table" then
+            lastCode = -1
+            return nil, nil
+        end
+
+        return data.data, data.nextPageCursor
+    end
+
+    local function refill()
+        table.clear(pool)
+
+        local cursor
+
+        for _ = 1, PAGES do
+            local entries, nextCursor = fetch(cursor)
+
+            if type(entries) == "table" then
+                for _, entry in ipairs(entries) do
+                    local id = type(entry) == "table" and entry.id or nil
+
+                    if type(id) == "string" and id ~= game.JobId and not visited[id] then
+                        local playing = tonumber(entry.playing) or 0
+                        local room = tonumber(entry.maxPlayers) or 0
+
+                        if room == 0 or playing < room then
+                            pool[#pool + 1] = id
                         end
                     end
                 end
-
-                cursor = nextCursor
-
-                if type(cursor) ~= "string" or cursor == "" or #pool >= POOL_TARGET then
-                    break
-                end
             end
 
-            for index = #pool, 2, -1 do
-                local swap = math.random(1, index)
-                pool[index], pool[swap] = pool[swap], pool[index]
+            cursor = nextCursor
+
+            if type(cursor) ~= "string" or cursor == "" or #pool >= POOL_TARGET then
+                break
             end
-
-            return #pool
         end
 
-        function Net.rejoin()
-            if reviving then
-                return
-            end
-
-            reviving = true
-            local jobId = game.JobId
-
-            task.spawn(function()
-                for _ = 1, RETRY_LIMIT do
-                    local sent = pcall(function()
-                        TeleportService:TeleportToPlaceInstance(PLACE, jobId, LocalPlayer)
-                    end)
-
-                    if not sent then
-                        pcall(function()
-                            TeleportService:Teleport(PLACE, LocalPlayer)
-                        end)
-                    end
-
-                    task.wait(RETRY_STEP)
-                end
-
-                reviving = false
-            end)
+        for index = #pool, 2, -1 do
+            local swap = math.random(1, index)
+            pool[index], pool[swap] = pool[swap], pool[index]
         end
 
-        function Net.hop()
-            if hopping then
-                return false
-            end
+        return #pool
+    end
 
-            hopping = true
-            visited[game.JobId] = true
-
-            task.spawn(function()
-                for round = 1, RETRY_LIMIT do
-                    if #pool == 0 and refill() == 0 then
-                        table.clear(visited)
-                        visited[game.JobId] = true
-                        refill()
-                    end
-
-                    local choice = table.remove(pool)
-
-                    if choice then
-                        visited[choice] = true
-                        note(string.format("try %d  %s", round, string.sub(choice, 1, 8)))
-
-                        local sent, err = pcall(function()
-                            TeleportService:TeleportToPlaceInstance(PLACE, choice, LocalPlayer)
-                        end)
-
-                        if not sent then
-                            note("blocked  " .. tostring(err))
-                        end
-
-                        if #pool <= REFILL_MARK then
-                            task.spawn(refill)
-                        end
-                    else
-                        note(string.format("no servers  http %d", lastCode))
-                    end
-
-                    task.wait(RETRY_STEP)
-                end
-
-                hopping = false
-            end)
-
-            return true
+    function Net.rejoin()
+        if reviving then
+            return
         end
 
-        function Net.forget()
-            table.clear(visited)
-            table.clear(pool)
-            visited[game.JobId] = true
-        end
-
-        function Net.busy()
-            return hopping
-        end
-
-        function Net.ready()
-            return #pool
-        end
-
-        function Net.stop()
-            alive = false
-        end
+        reviving = true
+        local jobId = game.JobId
 
         task.spawn(function()
-            while alive do
-                if #pool < POOL_TARGET and not hopping then
+            for _ = 1, RETRY_LIMIT do
+                local sent = pcall(function()
+                    TeleportService:TeleportToPlaceInstance(PLACE, jobId, LocalPlayer)
+                end)
+
+                if not sent then
+                    pcall(function()
+                        TeleportService:Teleport(PLACE, LocalPlayer)
+                    end)
+                end
+
+                task.wait(RETRY_STEP)
+            end
+
+            reviving = false
+        end)
+    end
+
+    function Net.hop()
+        if hopping then
+            return false
+        end
+
+        hopping = true
+        visited[game.JobId] = true
+
+        task.spawn(function()
+            for round = 1, RETRY_LIMIT do
+                if #pool == 0 and refill() == 0 then
+                    table.clear(visited)
+                    visited[game.JobId] = true
                     refill()
                 end
 
-                task.wait(WARM_STEP)
-            end
-        end)
+                local choice = table.remove(pool)
 
-        netConns[#netConns + 1] = TeleportService.TeleportInitFailed:Connect(function()
-            hopping = false
-        end)
+                if choice then
+                    visited[choice] = true
+                    note(string.format("try %d  %s", round, string.sub(choice, 1, 8)))
 
-        netConns[#netConns + 1] = GuiService.ErrorMessageChanged:Connect(function()
-            local ok, message = pcall(function()
-                return GuiService:GetErrorMessage()
-            end)
-
-            if ok and type(message) == "string" and message ~= "" then
-                task.delay(BACK_DELAY, Net.rejoin)
-            end
-        end)
-
-        local prompts = CoreGui:FindFirstChild("RobloxPromptGui")
-        local overlay = prompts and prompts:FindFirstChild("promptOverlay")
-
-        if overlay then
-            netConns[#netConns + 1] = overlay.ChildAdded:Connect(function(child)
-                if child.Name:find("ErrorPrompt") then
-                    task.delay(BACK_DELAY, Net.rejoin)
-                end
-            end)
-        end
-    end
-
-    install()
-end
-
-local Farm = {}
-local farmConn
-
-do
-    local function install()
-        local FARM_KINDS = { "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite" }
-
-        local SCAN_SPOTS = {
-            CFrame.new(
-                -12.7105675, 459.090942, 818.847412,
-                0.993408799, -0.00500036497, -0.11451605,
-                0.000644713698, 0.999275982, -0.0380407833,
-                0.114623353, 0.0377162211, 0.992692769
-            ),
-            CFrame.new(
-                13.0506754, 318.450409, -488.078888,
-                -0.99998939, 0.000884758658, -0.00452193478,
-                -0.000498382491, 0.954864502, 0.297041386,
-                0.00458064489, 0.297040492, -0.954853892
-            ),
-            CFrame.new(
-                74.3923645, 610.789368, 210.838226,
-                -0.94896102, -0.27110818, 0.161162555,
-                2.26557495e-06, 0.51098305, 0.859590769,
-                -0.315393418, 0.815718472, -0.484902382
-            ),
-        }
-
-        local TeleportService = game:GetService("TeleportService")
-        local PLACE_ID = game.PlaceId
-
-        local HOLD_DIST = 8
-        local HOLD_SLACK = 0.75
-        local HOLD_AIM = 0.999
-        local SCAN_HOLD = 1.4
-        local SWING_GAP = 0.04
-        local SWING_BURST = 6
-        local SWING_FLOOR = 0.02
-        local COOLDOWN_KEYS = { "SwingCooldown", "DigCooldown", "Cooldown", "SwingSpeed", "DigSpeed" }
-        local AIM_ANGLES = { 0, 35, -35, 70, -70, 110, -110, 145, -145, 180 }
-        local AIM_LIFT = { 0, 5, -4, 12 }
-        local SIGHT_GRACE = 1.5
-        local SIGHT_STEPS = 8
-        local LOST_GRACE = 2.5
-        local DRY_ROUNDS = 4
-        local DRY_TIME = 1.1
-        local PROBE_DIST = { 0, -3, 4, -5, 8 }
-        local SWEEP_PARTS = 3
-        local RUNE_SWEEP = 90
-        local LOOT_TIME = 3.5
-        local EQUIP_STEP = 1
-        local RESET_WAIT = 2
-
-        local PICK_NAMES = {
-            ["Rusty Scrapper"] = true,
-            ["Weathered Wood"] = true,
-            ["Chipped Stone"] = true,
-            ["Hardened Iron"] = true,
-            ["Copper Pick"] = true,
-            ["Reinforced Steel"] = true,
-            ["Titanium Spike"] = true,
-            ["Frostbite Pick"] = true,
-            ["Emerald Carver"] = true,
-            ["Volcano Basalt"] = true,
-            ["Obsidian Edge"] = true,
-            ["Tempest Pick"] = true,
-            ["Celestial Apex"] = true,
-            ["Astral Rend"] = true,
-            ["Eclipse Fang"] = true,
-            ["Nebular Throne"] = true,
-            Voidreign = true,
-            Singularity = true,
-            ["The Terminus"] = true,
-            ["Admin Pickaxe"] = true,
-            ["Shark Pickaxe"] = true,
-            ["Diamond Pickaxe"] = true,
-        }
-
-        local digRemote
-        local active = false
-        local targets = {}
-        local phase = "idle"
-        local target, anchor
-        local swingClock = 0
-        local equipClock = 0
-        local waitUntil = 0
-        local lastSpot
-        local hpMark
-        local dryRounds = 0
-        local scanned = false
-        local scanIndex = 0
-        local heldPick
-        local spotFrame
-        local aimTurn = 0
-        local blindClock = 0
-        local lostClock = 0
-        local dryClock = 0
-        local probeIndex = 0
-        local partCursor = 0
-        local pendingFinish = false
-        local lootUntil = 0
-        local statusText = "Idle"
-
-        local function toggleValue(name)
-            return false
-        end
-
-        local function digEvent()
-            if digRemote and digRemote.Parent then
-                return digRemote
-            end
-
-            digRemote = findRemote("DigRequest")
-            return digRemote
-        end
-
-        local function isPickaxe(tool)
-            if not tool or not tool:IsA("Tool") then
-                return false
-            end
-
-            if getAttr(tool, "IsPickaxe") == true then
-                return true
-            end
-
-            if PICK_NAMES[tool.Name] then
-                return true
-            end
-
-            return getAttr(tool, "DigPower") ~= nil and getAttr(tool, "Tier") == nil
-        end
-
-        local function pickScore(tool)
-            if not isPickaxe(tool) then
-                return 0
-            end
-
-            local score = 1
-            local power = tonumber(getAttr(tool, "DigPower"))
-            if power then
-                score += power
-            end
-
-            return score
-        end
-
-        local function equipPick()
-            local character = LocalPlayer.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            if not character or not humanoid then
-                return nil
-            end
-
-            local held = character:FindFirstChildOfClass("Tool")
-            local choice
-            local best = 0
-
-            local function consider(tool)
-                local score = pickScore(tool)
-                if score > best then
-                    best = score
-                    choice = tool
-                end
-            end
-
-            consider(held)
-
-            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-            if backpack then
-                for _, tool in ipairs(backpack:GetChildren()) do
-                    consider(tool)
-                end
-            end
-
-            if not choice then
-                return nil
-            end
-
-            if choice == held then
-                return held
-            end
-
-            pcall(function()
-                humanoid:EquipTool(choice)
-            end)
-
-            local now = character:FindFirstChildOfClass("Tool")
-            if now and isPickaxe(now) then
-                return now
-            end
-
-            return nil
-        end
-
-        local rayParams = RaycastParams.new()
-        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        rayParams.IgnoreWater = true
-        rayParams.RespectCanCollide = false
-
-        local JUNK_WORDS = { "vfx", "effect", "fx", "debris", "particle", "shard", "chunk", "dust", "smoke" }
-
-        local function junkName(instance)
-            local name = string.lower(instance.Name)
-
-            for _, word in ipairs(JUNK_WORDS) do
-                if string.find(name, word, 1, true) then
-                    return true
-                end
-            end
-
-            return false
-        end
-
-        local function ignorable(instance, model)
-            if not instance then
-                return true
-            end
-
-            if model and instance:IsDescendantOf(model) then
-                return true
-            end
-
-            if instance:IsA("Terrain") then
-                return true
-            end
-
-            if not instance:IsA("BasePart") then
-                return true
-            end
-
-            if instance.Transparency >= 0.5 or not instance.CanCollide or not instance.CanQuery then
-                return true
-            end
-
-            if not instance.Anchored or instance.Massless then
-                return true
-            end
-
-            if junkName(instance) then
-                return true
-            end
-
-            local owner = instance:FindFirstAncestorOfClass("Model")
-            if owner and Players:GetPlayerFromCharacter(owner) then
-                return true
-            end
-
-            return false
-        end
-
-        local function sightClear(origin, part, model)
-            if not part or not part.Parent then
-                return true
-            end
-
-            local delta = part.Position - origin
-            local distance = delta.Magnitude
-            if distance < 1 then
-                return true
-            end
-
-            local skip = { LocalPlayer.Character, Workspace.Terrain }
-
-            for _ = 1, SIGHT_STEPS do
-                rayParams.FilterDescendantsInstances = skip
-
-                local hit = Workspace:Raycast(origin, delta.Unit * (distance + 2), rayParams)
-                if not hit then
-                    return true
-                end
-
-                local instance = hit.Instance
-
-                if instance == part or (model and instance:IsDescendantOf(model)) then
-                    return true
-                end
-
-                if not ignorable(instance, model) then
-                    return false
-                end
-
-                skip[#skip + 1] = instance
-            end
-
-            return true
-        end
-
-        local function usablePart(item)
-            if not item:IsA("BasePart") then
-                return false
-            end
-
-            if not item.Anchored or item.Transparency >= 0.9 or item.Massless then
-                return false
-            end
-
-            return not junkName(item)
-        end
-
-        local function partList(model)
-            local list = {}
-
-            if model:IsA("BasePart") then
-                list[1] = model
-                return list
-            end
-
-            local spare = {}
-
-            for _, item in ipairs(model:GetDescendants()) do
-                if item:IsA("BasePart") then
-                    if usablePart(item) then
-                        list[#list + 1] = item
-                    else
-                        spare[#spare + 1] = item
-                    end
-                end
-            end
-
-            if #list > 0 then
-                return list
-            end
-
-            return spare
-        end
-
-        local function anchorSpot(model, part)
-            if part and part.Parent then
-                return part.Position
-            end
-
-            if not model or not model.Parent then
-                return nil
-            end
-
-            local ok, pivot = pcall(model.GetPivot, model)
-            if ok and pivot then
-                return pivot.Position
-            end
-
-            return nil
-        end
-
-        local function coreSpot(model)
-            if not model or not model.Parent then
-                return nil
-            end
-
-            if model:IsA("BasePart") then
-                return model.Position
-            end
-
-            local boxed, box = pcall(model.GetBoundingBox, model)
-            if boxed and box then
-                return box.Position
-            end
-
-            local ok, pivot = pcall(model.GetPivot, model)
-            if ok and pivot then
-                return pivot.Position
-            end
-
-            return nil
-        end
-
-        local function coreFrame(core, part)
-            local look = part and part.Parent and part.Position or nil
-
-            if not look or (look - core).Magnitude < 1 then
-                look = core + Vector3.new(0, -2, 0)
-            end
-
-            return CFrame.new(core, look)
-        end
-
-        local function visibleAnchor(model)
-            local root = getRoot()
-            local origin = root and root.Position
-            local pick, pickDistance, fallback, fallbackDistance
-
-            for _, part in ipairs(partList(model)) do
-                local distance = origin and (part.Position - origin).Magnitude or 0
-
-                if not fallback or distance < fallbackDistance then
-                    fallback = part
-                    fallbackDistance = distance
-                end
-
-                if origin and sightClear(origin, part, model) then
-                    if not pick or distance < pickDistance then
-                        pick = part
-                        pickDistance = distance
-                    end
-                end
-            end
-
-            return pick or fallback
-        end
-
-        local function freshAnchor(model)
-            local list = partList(model)
-            local count = #list
-
-            if count == 0 then
-                return nil
-            end
-
-            for _ = 1, count do
-                partCursor = partCursor % count + 1
-
-                local item = list[partCursor]
-                if item and item.Parent then
-                    return item
-                end
-            end
-
-            return nil
-        end
-
-        local function hitSpot(part, model)
-            local root = getRoot()
-            if not root then
-                return part.Position
-            end
-
-            local origin = root.Position
-            local delta = part.Position - origin
-            local distance = delta.Magnitude
-            if distance < 1 then
-                return part.Position
-            end
-
-            local skip = { LocalPlayer.Character, Workspace.Terrain }
-
-            for _ = 1, SIGHT_STEPS do
-                rayParams.FilterDescendantsInstances = skip
-
-                local hit = Workspace:Raycast(origin, delta.Unit * (distance + 2), rayParams)
-                if not hit then
-                    break
-                end
-
-                if hit.Instance == part or hit.Instance:IsDescendantOf(model) then
-                    return hit.Position
-                end
-
-                skip[#skip + 1] = hit.Instance
-            end
-
-            return part.Position
-        end
-
-        local function swingGap(tool)
-            local pick = tool or heldPick
-            if pick then
-                for _, key in ipairs(COOLDOWN_KEYS) do
-                    local value = tonumber(getAttr(pick, key))
-                    if value and value > 0 then
-                        return math.max(value, SWING_FLOOR)
-                    end
-                end
-            end
-
-            return SWING_GAP
-        end
-
-        local function swing(part, model, center)
-            local event = digEvent()
-            if not event or not heldPick then
-                return false
-            end
-
-            local name = heldPick.Name
-            local core = center or (part and part.Parent and part.Position)
-            local spot = core
-
-            if part and part.Parent then
-                spot = hitSpot(part, model) or core
-            end
-
-            if not spot and not core then
-                return false
-            end
-
-            spot = spot or core
-            core = core or spot
-
-            local sweep = {}
-
-            if model and model.Parent then
-                local list = partList(model)
-                local count = #list
-
-                if count > 0 then
-                    for _ = 1, math.min(SWEEP_PARTS, count) do
-                        partCursor = partCursor % count + 1
-
-                        local item = list[partCursor]
-                        if item and item.Parent then
-                            sweep[#sweep + 1] = item.Position
-                        end
-                    end
-                end
-            end
-
-            return pcall(function()
-                for index = 1, SWING_BURST do
-                    if index % 2 == 0 then
-                        event:FireServer(name, core)
-                    else
-                        event:FireServer(name, spot)
-                    end
-                end
-
-                for _, point in ipairs(sweep) do
-                    event:FireServer(name, point)
-                end
-            end)
-        end
-
-        local function hold(goal, aim)
-            return Move.glide(goal, aim)
-        end
-
-        local function restart()
-            task.spawn(function()
-                pcall(function()
-                    LocalPlayer:Kick("Universe: restarting server")
-                end)
-
-                for _ = 1, 20 do
-                    task.wait(1.5)
-
-                    local sent = pcall(function()
-                        TeleportService:Teleport(PLACE_ID, LocalPlayer)
+                    local sent, err = pcall(function()
+                        TeleportService:TeleportToPlaceInstance(PLACE, choice, LocalPlayer)
                     end)
 
                     if not sent then
-                        pcall(function()
-                            TeleportService:TeleportToPlaceInstance(PLACE_ID, game.JobId, LocalPlayer)
-                        end)
-                    end
-                end
-            end)
-        end
-
-        local function boulderRoots()
-            local roots = {}
-
-            local decorations = Workspace:FindFirstChild("MountainDecorations")
-            local folder = decorations and decorations:FindFirstChild("Boulders")
-            if folder then
-                roots[#roots + 1] = folder
-            end
-
-            local test = Workspace:FindFirstChild("BoulderTest")
-            if test then
-                roots[#roots + 1] = test
-            end
-
-            return roots
-        end
-
-        local function boulderKind(inst)
-            for _, kind in ipairs(FARM_KINDS) do
-                if inst.Name:find(kind, 1, true) then
-                    return kind
-                end
-            end
-            return nil
-        end
-
-        local function anchorOf(model)
-            if model:IsA("BasePart") then
-                return model
-            end
-
-            local list = partList(model)
-            if list[1] then
-                return list[1]
-            end
-
-            local ok, part = pcall(model.FindFirstChildWhichIsA, model, "BasePart", true)
-            if ok and part then
-                return part
-            end
-
-            return nil
-        end
-
-        local function boulderHealth(model)
-            local hp = getAttr(model, "Health")
-            if hp == nil then
-                hp = getAttr(model, "Hp")
-            end
-            if hp == nil then
-                hp = getAttr(model, "CurrentHealth")
-            end
-            return tonumber(hp)
-        end
-
-        local function pickTarget()
-            local root = getRoot()
-            if not root then
-                return nil
-            end
-
-            local best, bestAnchor, bestScore
-
-            for _, container in ipairs(boulderRoots()) do
-                for _, child in ipairs(container:GetChildren()) do
-                    local kind = boulderKind(child)
-                    if kind and targets[kind] then
-                        local part = anchorOf(child)
-                        if part then
-                            local distance = (part.Position - root.Position).Magnitude
-                            local hp = boulderHealth(child) or 0
-                            local score = hp * 2 + distance
-
-                            if not best or score < bestScore then
-                                best = child
-                                bestAnchor = part
-                                bestScore = score
-                            end
-                        end
-                    end
-                end
-            end
-
-            return best, bestAnchor
-        end
-
-        local function approach(part, model, turn, spot, pad)
-            local root = getRoot()
-            if not root then
-                return nil
-            end
-
-            local center = spot or (part and part.Parent and part.Position)
-            if not center then
-                return nil
-            end
-
-            local away = root.Position - center
-            away = Vector3.new(away.X, 0, away.Z)
-
-            if away.Magnitude < 0.5 then
-                away = Vector3.new(0, 0, 1)
-            end
-
-            away = away.Unit
-
-            local span = part and part.Parent and part.Size.Magnitude * 0.5 or 6
-            local reach = math.max(span + HOLD_DIST + (pad or 0), span + 3)
-            local skip = turn or 0
-
-            for _, lift in ipairs(AIM_LIFT) do
-                for _, angle in ipairs(AIM_ANGLES) do
-                    local dir = (CFrame.fromAxisAngle(Vector3.yAxis, math.rad(angle)) * away).Unit
-                    local candidate = center + dir * reach + Vector3.new(0, lift, 0)
-
-                    if sightClear(candidate, part, model) then
-                        if skip <= 0 then
-                            return CFrame.new(candidate, center)
-                        end
-
-                        skip -= 1
-                    end
-                end
-            end
-
-            return CFrame.new(center + away * reach + Vector3.new(0, AIM_LIFT[2], 0), center)
-        end
-
-        local function beginLoot(finish)
-            pendingFinish = finish == true
-            lootUntil = os.clock() + LOOT_TIME
-            phase = "loot"
-            statusText = "Looting runes"
-        end
-
-        local function stop()
-            active = false
-            phase = "idle"
-            target = nil
-            anchor = nil
-            waitUntil = 0
-            Move.glideStop()
-            hpMark = nil
-            dryRounds = 0
-            pendingFinish = false
-            lootUntil = 0
-            spotFrame = nil
-            aimTurn = 0
-            blindClock = 0
-            lostClock = 0
-            dryClock = 0
-            probeIndex = 0
-            statusText = "Idle"
-
-            Move.setFly(false)
-            Move.setNoclip(false)
-            Mountain.setAutoGrab(false)
-        end
-
-        local function step(deltaTime)
-            local root = getRoot()
-            if not root then
-                statusText = "Waiting for character"
-                return
-            end
-
-            local now = os.clock()
-
-            if phase == "scan" then
-                if not scanned then
-                    if scanIndex == 0 then
-                        scanIndex = 1
-                        waitUntil = now + SCAN_HOLD
+                        note("blocked  " .. tostring(err))
                     end
 
-                    if scanIndex <= #SCAN_SPOTS then
-                        hold(SCAN_SPOTS[scanIndex])
-                        statusText = string.format("Scanning %d/%d", scanIndex, #SCAN_SPOTS)
-
-                        if now >= waitUntil then
-                            scanIndex += 1
-                            waitUntil = now + SCAN_HOLD
-                        end
-
-                        return
+                    if #pool <= REFILL_MARK then
+                        task.spawn(refill)
                     end
-
-                    scanned = true
-                end
-
-                local model = pickTarget()
-                if not model then
-                    beginLoot(true)
-                    statusText = "Final rune sweep"
-                    return
-                end
-
-                target = model
-                anchor = visibleAnchor(model)
-                spotFrame = nil
-                aimTurn = 0
-                blindClock = 0
-                lostClock = 0
-                dryClock = 0
-                probeIndex = 0
-                hpMark = nil
-                dryRounds = 0
-                phase = "mine"
-                return
-            end
-
-            if phase == "mine" then
-                if not target or not target.Parent then
-                    lastSpot = root.CFrame
-                    beginLoot(false)
-                    return
-                end
-
-                local kind = boulderKind(target) or "Boulder"
-                local hp = boulderHealth(target)
-
-                if hp and hp <= 0 then
-                    lastSpot = root.CFrame
-                    beginLoot(false)
-                    return
-                end
-
-                if not anchor or not anchor.Parent or not anchor:IsDescendantOf(target) then
-                    anchor = visibleAnchor(target) or anchorOf(target)
-                    spotFrame = nil
-                end
-
-                local core = coreSpot(target)
-                local center = core or anchorSpot(target, anchor)
-
-                if not center then
-                    lostClock += deltaTime
-
-                    if lostClock >= LOST_GRACE then
-                        lastSpot = root.CFrame
-                        beginLoot(false)
-                        return
-                    end
-
-                    statusText = string.format("Holding %s", kind)
-                    return
-                end
-
-                lostClock = 0
-
-                if not spotFrame then
-                    if core and probeIndex == 0 then
-                        spotFrame = coreFrame(core, anchor)
-                    else
-                        spotFrame = approach(anchor, target, aimTurn, center, PROBE_DIST[probeIndex % #PROBE_DIST + 1])
-                    end
-                end
-
-                if spotFrame then
-                    Move.setNoclip(true)
-                    hold(spotFrame, center)
-                end
-
-                if heldPick == nil or heldPick.Parent ~= LocalPlayer.Character then
-                    equipClock = 0
-                    heldPick = equipPick()
                 else
-                    equipClock += deltaTime
-                    if equipClock >= EQUIP_STEP then
-                        equipClock = 0
-                        heldPick = equipPick() or heldPick
-                    end
+                    note(string.format("no servers  http %d", lastCode))
                 end
 
-                if not heldPick then
-                    statusText = "No pickaxe"
-                    return
-                end
-
-                swingClock += deltaTime
-
-                local gap = swingGap()
-                local swung = 0
-
-                if swingClock >= gap then
-                    swung = math.min(math.floor(swingClock / gap), 4)
-                    swingClock -= swung * gap
-
-                    for _ = 1, swung do
-                        swing(anchor, target, center)
-                    end
-                end
-
-                if hp then
-                    if hpMark == nil or hp < hpMark - 0.001 then
-                        hpMark = hp
-                        dryRounds = 0
-                        dryClock = 0
-                        blindClock = 0
-                    else
-                        dryClock += deltaTime
-                        dryRounds += swung
-
-                        if dryClock >= DRY_TIME or dryRounds >= DRY_ROUNDS then
-                            dryClock = 0
-                            dryRounds = 0
-                            probeIndex += 1
-                            aimTurn = (aimTurn + 1) % #AIM_ANGLES
-                            anchor = freshAnchor(target) or visibleAnchor(target) or anchor
-                            spotFrame = nil
-                        end
-                    end
-
-                    statusText = string.format("Mining %s  %.0f hp", kind, hp)
-                    return
-                end
-
-                if sightClear(root.Position, anchor, target) then
-                    blindClock = 0
-                else
-                    blindClock += deltaTime
-
-                    if blindClock >= SIGHT_GRACE then
-                        blindClock = 0
-                        aimTurn = (aimTurn + 1) % #AIM_ANGLES
-                        anchor = visibleAnchor(target) or anchor
-                        spotFrame = nil
-                    end
-                end
-
-                statusText = string.format("Mining %s", kind)
-
-                return
+                task.wait(RETRY_STEP)
             end
 
-            if phase == "loot" then
-                if lastSpot then
-                    hold(lastSpot)
-                end
-
-                Mountain.grabNear(RUNE_SWEEP)
-
-                if now < lootUntil then
-                    statusText = string.format("Looting runes  %.1fs", lootUntil - now)
-                    return
-                end
-
-                if pendingFinish then
-                    phase = "reset"
-                    waitUntil = now + RESET_WAIT
-                    statusText = "Runes collected"
-                else
-                    target = nil
-                    anchor = nil
-                    phase = "scan"
-                    statusText = "Next boulder"
-                end
-
-                return
-            end
-
-            if phase == "reset" then
-                if now < waitUntil then
-                    return
-                end
-
-                statusText = "Restarting server"
-                WindUI:Notify({
-                    Title = "Mine a Mountain",
-                    Content = "No boulders left - kicking and rejoining",
-                    Duration = 3,
-                    Icon = "alert-circle",
-                })
-                stop()
-                restart()
-            end
-        end
-
-        local function setTargets(value)
-            table.clear(targets)
-
-            if type(value) == "table" then
-                for key, flag in pairs(value) do
-                    if type(key) == "string" and flag == true then
-                        targets[key] = true
-                    elseif type(flag) == "string" then
-                        targets[flag] = true
-                    end
-                end
-            elseif type(value) == "string" then
-                targets[value] = true
-            end
-        end
-
-        local function setActive(value)
-            if not value then
-                stop()
-                return
-            end
-
-            if not next(targets) then
-                WindUI:Notify({
-                    Title = "Mine a Mountain",
-                    Content = "Pick at least one boulder",
-                    Duration = 2,
-                    Icon = "alert-circle",
-                })
-                return
-            end
-
-            active = true
-            phase = "scan"
-            waitUntil = 0
-            target = nil
-            anchor = nil
-            lastSpot = nil
-            swingClock = 0
-            equipClock = 0
-            hpMark = nil
-            dryRounds = 0
-            spotFrame = nil
-            aimTurn = 0
-            blindClock = 0
-            lostClock = 0
-            dryClock = 0
-            probeIndex = 0
-            scanned = false
-            scanIndex = 0
-            heldPick = nil
-            pendingFinish = false
-            lootUntil = 0
-            statusText = "Starting"
-
-            Move.setFly(false)
-            Move.setNoclip(true)
-            Mountain.setAutoGrab(true)
-        end
-
-        local FarmBox = Tabs.boulders:Section({ Title = "Boulder Farm", Icon = "bot", Opened = true })
-
-        FarmBox:Paragraph({
-            Title = "Rune Farming",
-            Desc = "Specialized in rune farming",
-        })
-
-        FarmBox:Dropdown({
-            Title = "Targets",
-            Desc = "Select boulder types to farm",
-            Values = FARM_KINDS,
-            Multi = true,
-            AllowNone = true,
-            Callback = setTargets
-        })
-
-        FarmBox:Toggle({
-            Title = "Auto Farm",
-            Desc = "Automatically farm boulders",
-            Value = false,
-            Callback = setActive
-        })
-
-        local StatusLabel = FarmBox:Paragraph({
-            Title = "Status",
-            Desc = "Idle",
-        })
-
-        local labelClock = 0
-
-        farmConn = RunService.Heartbeat:Connect(function(deltaTime)
-            if active then
-                local ok, err = pcall(step, deltaTime)
-                if not ok then
-                    reportError("boulderFarm", err)
-                end
-            end
-
-            labelClock += deltaTime
-            if labelClock >= 0.25 then
-                labelClock = 0
-                StatusLabel.Desc = statusText
-            end
+            hopping = false
         end)
 
-        Farm.stop = stop
-        Farm.equipPick = equipPick
-        Farm.swingGap = swingGap
-        Farm.digEvent = digEvent
+        return true
     end
 
-    install()
-end
+    function Net.forget()
+        table.clear(visited)
+        table.clear(pool)
+        visited[game.JobId] = true
+    end
 
-local Money = {}
-local moneyConn
+    function Net.busy()
+        return hopping
+    end
 
-do
-    local function install()
-        local SCAN_SPOTS = {
-            CFrame.new(
-                -12.7105675,
-                459.090942,
-                818.847412,
-                0.993408799,
-                -0.00500036497,
-                -0.11451605,
-                0.000644713698,
-                0.999275982,
-                -0.0380407833,
-                0.114623353,
-                0.0377162211,
-                0.992692769
-            ),
-            CFrame.new(
-                13.0506754,
-                318.450409,
-                -488.078888,
-                -0.99998939,
-                0.000884758658,
-                -0.00452193478,
-                -0.000498382491,
-                0.954864502,
-                0.297041386,
-                0.00458064489,
-                0.297040492,
-                -0.954853892
-            ),
-            CFrame.new(
-                74.3923645,
-                610.789368,
-                210.838226,
-                -0.94896102,
-                -0.27110818,
-                0.161162555,
-                2.26557495e-06,
-                0.51098305,
-                0.859590769,
-                -0.315393418,
-                0.815718472,
-                -0.484902382
-            ),
-        }
+    function Net.ready()
+        return #pool
+    end
 
-        local SCAN_HOLD = 1.4
-        local PEAK_GAP = 10
-        local PEAK_STEP = 48
-        local PEAK_RINGS = 12
-        local COLUMN_STEP = 8
-        local RING_MAX = 6
-        local RAY_TOP = 120
-        local RAY_DROP = 60
-        local ZONE_PAD = 12
-        local SURFACE_GAP = 0.15
-        local COLUMN_DRY = 40
-        local DIG_BURST = 7
-        local DIG_SINK = 1.2
-        local DIG_LIFT = 6
-        local DIG_SLACK = 1.5
-        local DIG_AIM = 0.999
-        local EQUIP_STEP = 1
-        local SELL_MARK = 0.5
-        local SELL_WAIT = 7
-        local DIG_REACH = 12
-        local DIG_REFRESH = 5
-        local COLLECT_RANGE = 32000
-        local COLLECT_LIFT = 5
-        local COLLECT_GAP = 0.15
-        local GRAB_GAP = 0.05
+    function Net.stop()
+        alive = false
+    end
 
-        local OFFSETS = { Vector2.new(0, 0) }
-        local PEAK_OFFSETS = { Vector2.new(0, 0) }
-
-        for ring = 1, RING_MAX do
-            local slices = ring * 6
-
-            for slice = 0, slices - 1 do
-                local angle = slice / slices * math.pi * 2
-                local reach = ring * COLUMN_STEP
-                OFFSETS[#OFFSETS + 1] = Vector2.new(math.cos(angle) * reach, math.sin(angle) * reach)
+    task.spawn(function()
+        while alive do
+            if #pool < POOL_TARGET and not hopping then
+                refill()
             end
+
+            task.wait(WARM_STEP)
         end
-
-        for ring = 1, PEAK_RINGS do
-            local slices = ring * 3
-
-            for slice = 0, slices - 1 do
-                local angle = slice / slices * math.pi * 2
-                local reach = ring * PEAK_STEP
-                PEAK_OFFSETS[#PEAK_OFFSETS + 1] =
-                    Vector2.new(math.cos(angle) * reach, math.sin(angle) * reach)
-            end
-        end
-
-        local surfaceParams = RaycastParams.new()
-        surfaceParams.FilterType = Enum.RaycastFilterType.Include
-        surfaceParams.FilterDescendantsInstances = { Workspace.Terrain }
-        surfaceParams.IgnoreWater = true
-
-        local digParams = RaycastParams.new()
-        digParams.FilterType = Enum.RaycastFilterType.Include
-        digParams.IgnoreWater = true
-
-        local digClock = 0
-
-        local function digFilter(now)
-            if digClock > 0 and now - digClock < DIG_REFRESH then
-                return
-            end
-
-            digClock = now
-
-            local list = { Workspace.Terrain }
-            local decorations = Workspace:FindFirstChild("MountainDecorations")
-            local boulders = decorations and decorations:FindFirstChild("Boulders")
-
-            if boulders then
-                list[#list + 1] = boulders
-            end
-
-            local test = Workspace:FindFirstChild("BoulderTest")
-
-            if test then
-                list[#list + 1] = test
-            end
-
-            digParams.FilterDescendantsInstances = list
-        end
-
-        local function pickReach(tool)
-            local override = tool and tonumber(getAttr(tool, "OverrideMaxReach"))
-            return (override or DIG_REACH) + 3
-        end
-
-        local function aimPoint(origin, spot, reach, now)
-            digFilter(now)
-
-            local goals = {
-                spot,
-                spot - Vector3.new(0, 2, 0),
-                origin - Vector3.new(0, reach, 0),
-            }
-
-            for _, goal in ipairs(goals) do
-                local delta = goal - origin
-                local distance = delta.Magnitude
-
-                if distance > 0.05 then
-                    local span = math.min(distance + 4, reach)
-                    local hit = Workspace:Raycast(origin, delta.Unit * span, digParams)
-
-                    if hit then
-                        return hit.Position
-                    end
-                end
-            end
-
-            local delta = spot - origin
-
-            if delta.Magnitude <= reach then
-                return spot
-            end
-
-            return origin + delta.Unit * reach
-        end
-
-        local active = false
-        local autoSell = false
-        local heldPick
-        local loot
-        local lootClock = 0
-        local grabClock = 0
-        local lootHp
-        local lootMax
-        local target
-        local columnY
-        local columnDry = 0
-        local columnSwings = 0
-        local surfaceClock = 0
-        local peakClock = 0
-        local scanIndex = 0
-        local scanUntil = 0
-        local loaded = false
-        local swingClock = 0
-        local equipClock = 0
-        local sellSpot
-        local sellUntil = 0
-        local lootBlocked = false
-        local statusText = "Idle"
-
-        local function toggleValue(name)
-            return false
-        end
-
-        local function zoneBase()
-            local base = Workspace:GetAttribute("MountainBaseY")
-            if typeof(base) == "number" then
-                return base
-            end
-            return 0
-        end
-
-        local function zonePeak()
-            local peak = Workspace:GetAttribute("MountainPeakY")
-            if typeof(peak) == "number" then
-                return peak
-            end
-            return zoneBase() + 900
-        end
-
-        local function zoneCenter()
-            local spot = mountainSpot()
-            if spot then
-                return Vector2.new(spot.X, spot.Z)
-            end
-            return nil
-        end
-
-        local function insideZone(x, z)
-            local center = zoneCenter()
-            if not center then
-                return false
-            end
-
-            return (Vector2.new(x, z) - center).Magnitude <= mountainSpan() + ZONE_PAD
-        end
-
-        local function surfaceAt(x, z)
-            if not insideZone(x, z) then
-                return nil
-            end
-
-            local base = zoneBase()
-            local top = zonePeak() + RAY_TOP
-            local hit = Workspace:Raycast(
-                Vector3.new(x, top, z),
-                Vector3.new(0, -(top - base + RAY_DROP), 0),
-                surfaceParams
-            )
-
-            if not hit or hit.Position.Y <= base + 1 then
-                return nil
-            end
-
-            return hit.Position
-        end
-
-        local function farmOrigin(root)
-            if insideZone(root.Position.X, root.Position.Z) then
-                return root.Position
-            end
-
-            return mountainSpot() or root.Position
-        end
-
-        local function highestColumn(origin, offsets)
-            local best
-
-            for _, offset in ipairs(offsets) do
-                local spot = surfaceAt(origin.X + offset.X, origin.Z + offset.Y)
-
-                if spot and (not best or spot.Y > best.Y) then
-                    best = spot
-                end
-            end
-
-            return best
-        end
-
-        local function pickTarget(origin, now)
-            local center = mountainSpot()
-
-            if center and now - peakClock >= PEAK_GAP then
-                peakClock = now
-
-                local high = highestColumn(center, PEAK_OFFSETS)
-                if high then
-                    return high
-                end
-            end
-
-            local spot = highestColumn(origin, OFFSETS)
-            if spot then
-                return spot
-            end
-
-            if center then
-                peakClock = now
-                return highestColumn(center, PEAK_OFFSETS)
-            end
-
-            return nil
-        end
-
-        local function holdAt(goal, aim)
-            return Move.glide(goal, aim)
-        end
-
-        local function swing(spot)
-            local event = Farm.digEvent()
-            if not event or not heldPick then
-                return false
-            end
-
-            local name = heldPick.Name
-            local root = getRoot()
-            local aim = spot
-
-            if root then
-                aim = aimPoint(root.Position, spot, pickReach(heldPick), os.clock()) or spot
-            end
-
-            return pcall(function()
-                for step = 0, DIG_BURST - 1 do
-                    event:FireServer(name, aim - Vector3.new(0, step * DIG_SINK, 0))
-                end
-            end)
-        end
-
-        local function bagRatio()
-            local capacity = backpackCapacity()
-            if capacity == math.huge or capacity <= 0 then
-                return 0
-            end
-
-            return backpackWeight() / capacity
-        end
-
-        local function findLoot(free, origin)
-            local best, bestValue, bestDistance
-            local blocked = false
-            local seen = {}
-
-            local function consider(inst)
-                if not inst or seen[inst] then
-                    return
-                end
-                seen[inst] = true
-
-                if not inst.Parent or not isCrystal(inst) or getAttr(inst, "Collected") == true then
-                    return
-                end
-
-                if espMode == "luck" then
-                    if not meetsLuckFilter(inst) then
-                        return
-                    end
-                else
-                    local value = crystalValue(inst)
-                    if not meetsValueFilter(inst, value) then
-                        return
-                    end
-                end
-
-                local value = crystalValue(inst)
-                local distance = (inst.Position - origin).Magnitude
-                if distance > COLLECT_RANGE then
-                    return
-                end
-
-                if crystalWeight(inst) > free then
-                    blocked = true
-                    return
-                end
-
-                local better = not best or value > bestValue
-
-                if not better and value == bestValue and distance < bestDistance then
-                    better = true
-                end
-
-                if better then
-                    best = inst
-                    bestValue = value
-                    bestDistance = distance
-                end
-            end
-
-            eachContainer(function(container)
-                for _, child in ipairs(container:GetChildren()) do
-                    if child:IsA("BasePart") then
-                        consider(child)
-                    elseif child:IsA("Model") then
-                        for _, inner in ipairs(child:GetChildren()) do
-                            if inner:IsA("BasePart") then
-                                consider(inner)
-                            end
-                        end
-                    end
-                end
-            end)
-
-            for inst in pairs(registry) do
-                consider(inst)
-            end
-
-            return best, blocked
-        end
-
-        local function stop()
-            active = false
-            target = nil
-            columnY = nil
-            loaded = false
-            Move.glideStop()
-            scanIndex = 0
-            loot = nil
-            lootHp = nil
-            lootMax = nil
-            lootBlocked = false
-            sellSpot = nil
-            sellUntil = 0
-            heldPick = nil
-            statusText = "Idle"
-
-            Move.setFly(false)
-            Move.setNoclip(false)
-            Mountain.setAutoGrab(false)
-        end
-
-        local function step(deltaTime)
-            local root = getRoot()
-            if not root then
-                statusText = "Waiting for character"
-                return
-            end
-
-            local now = os.clock()
-
-            if not loaded then
-                if scanIndex == 0 then
-                    scanIndex = 1
-                    scanUntil = now + SCAN_HOLD
-                end
-
-                if scanIndex <= #SCAN_SPOTS then
-                    holdAt(SCAN_SPOTS[scanIndex])
-                    statusText = string.format("Loading terrain %d/%d", scanIndex, #SCAN_SPOTS)
-
-                    if now >= scanUntil then
-                        scanIndex += 1
-                        scanUntil = now + SCAN_HOLD
-                    end
-
-                    return
-                end
-
-                loaded = true
-                peakClock = 0
-            end
-
-            if sellUntil > 0 then
-                if now < sellUntil then
-                    statusText = "Selling"
-                    return
-                end
-
-                sellUntil = 0
-
-                if sellSpot then
-                    applyPivot(sellSpot)
-                    sellSpot = nil
-                end
-
-                target = nil
-                columnY = nil
-                surfaceClock = 0
-            end
-
-            if autoSell and (bagRatio() >= SELL_MARK or lootBlocked) then
-                sellSpot = root.CFrame
-
-                if doSell() then
-                    lootBlocked = false
-                    sellUntil = now + SELL_WAIT
-                    statusText = "Selling"
-                    return
-                end
-            end
-
-            pickupStep()
-
-            if heldPick == nil or heldPick.Parent ~= LocalPlayer.Character then
-                equipClock = 0
-                heldPick = Farm.equipPick()
-            else
-                equipClock += deltaTime
-                if equipClock >= EQUIP_STEP then
-                    equipClock = 0
-                    heldPick = Farm.equipPick() or heldPick
-                end
-            end
-
-            if not heldPick then
-                statusText = "No pickaxe"
-                return
-            end
-
-            swingClock += deltaTime
-
-            local swingNeed = math.max(0.02, Farm.swingGap(heldPick) * 0.4)
-            local canSwing = swingClock >= swingNeed
-            local free = backpackFree()
-
-            if loot and (not loot.Parent or getAttr(loot, "Collected") == true) then
-                loot = nil
-                lootHp = nil
-                lootMax = nil
-            end
-
-            if loot then
-                local hp = tonumber(getAttr(loot, "MinedHP"))
-
-                if hp and (lootMax == nil or hp > lootMax) then
-                    lootMax = hp
-                end
-
-                lootHp = hp
-            end
-
-            if not loot and now - lootClock >= COLLECT_GAP then
-                lootClock = now
-                loot, lootBlocked = findLoot(free, root.Position)
-
-                if loot then
-                    lootHp = tonumber(getAttr(loot, "MinedHP"))
-                    lootMax = lootHp
-                end
-            end
-
-            if loot then
-                local spot = loot.Position
-
-                holdAt(CFrame.new(spot + Vector3.new(0, COLLECT_LIFT, 0), spot), spot)
-
-                local digSpot = spot
-
-                if not lootHp or lootHp <= 0 then
-                    local ground = surfaceAt(spot.X, spot.Z)
-
-                    if ground then
-                        digSpot = ground
-                    end
-                end
-
-                requestStream(spot)
-
-                if canSwing then
-                    swingClock -= swingNeed
-                    swing(digSpot)
-                end
-
-                if now - grabClock >= GRAB_GAP then
-                    grabClock = now
-                    grabCrystal(loot, crystalPrompt(loot))
-                end
-
-                if lootHp and lootHp > 0 then
-                    local ratio = 0
-
-                    if lootMax and lootMax > 0 then
-                        ratio = math.clamp(1 - lootHp / lootMax, 0, 1)
-                    end
-
-                    statusText = string.format("Breaking crystal %d%%", math.floor(ratio * 100))
-                else
-                    statusText = "Collecting crystals"
-                end
-
-                return
-            end
-
-            local origin = farmOrigin(root)
-
-            if target and now - surfaceClock >= SURFACE_GAP then
-                surfaceClock = now
-
-                local spot = surfaceAt(target.X, target.Z)
-
-                if not spot then
-                    target = nil
-                    columnY = nil
-                    columnDry = 0
-                    columnSwings = 0
-                else
-                    if not columnY or spot.Y < columnY - 0.05 then
-                        columnDry = 0
-                    else
-                        columnDry += columnSwings
-                    end
-
-                    columnSwings = 0
-                    columnY = spot.Y
-                    target = spot
-
-                    if columnDry >= COLUMN_DRY then
-                        target = nil
-                        columnY = nil
-                        columnDry = 0
-                    end
-                end
-            end
-
-            if not target then
-                local spot = pickTarget(origin, now)
-
-                if not spot then
-                    spot = surfaceAt(origin.X, origin.Z)
-                end
-
-                if not spot then
-                    requestStream(origin)
-
-                    if canSwing then
-                        swingClock -= swingNeed
-                        swing(root.Position - Vector3.new(0, DIG_REACH * 0.5, 0))
-                    end
-
-                    statusText = "Loading terrain"
-                    return
-                end
-
-                target = spot
-                columnY = spot.Y
-                columnDry = 0
-                columnSwings = 0
-                surfaceClock = now
-            end
-
-            holdAt(CFrame.new(target + Vector3.new(0, DIG_LIFT, 0), target), target)
-
-            if canSwing then
-                swingClock -= swingNeed
-                columnSwings += 1
-                swing(target)
-            end
-
-            statusText = string.format("Mining surface at %dm", math.floor(target.Y))
-        end
-
-        local function setActive(value)
-            if not value then
-                stop()
-                return
-            end
-
-            active = true
-            target = nil
-            columnY = nil
-            columnDry = 0
-            columnSwings = 0
-            surfaceClock = 0
-            peakClock = 0
-            scanIndex = 0
-            scanUntil = 0
-            loaded = false
-            loot = nil
-            lootClock = 0
-            lootHp = nil
-            lootMax = nil
-            lootBlocked = false
-            swingClock = 0
-            equipClock = 0
-            sellSpot = nil
-            sellUntil = 0
-            heldPick = nil
-            statusText = "Starting"
-
-            Move.setFly(false)
-            Move.setNoclip(true)
-            Mountain.setAutoGrab(true)
-        end
-
-        local MoneyBox = Tabs.farming:Section({ Title = "Money Farm", Icon = "banknote", Opened = true })
-
-        MoneyBox:Paragraph({
-            Title = "Money Farming",
-            Desc = "Loads the mountain and digs from the peak downwards",
-        })
-
-        MoneyBox:Toggle({
-            Title = "Auto Farm",
-            Desc = "Automatically farm money",
-            Value = false,
-            Callback = setActive
-        })
-
-        MoneyBox:Toggle({
-            Title = "Auto Sell At 50%",
-            Desc = "Sell when backpack is 50% full",
-            Value = false,
-            Callback = function(value)
-                autoSell = value
-            end
-        })
-
-        local StatusLabel = MoneyBox:Paragraph({
-            Title = "Status",
-            Desc = "Idle",
-        })
-
-        local labelClock = 0
-
-        moneyConn = RunService.Heartbeat:Connect(function(deltaTime)
-            if active then
-                local ok, err = pcall(step, deltaTime)
-                if not ok then
-                    reportError("moneyFarm", err)
-                end
-            end
-
-            labelClock += deltaTime
-            if labelClock >= 0.25 then
-                labelClock = 0
-                StatusLabel.Desc = statusText
-            end
+    end)
+
+    netConns[#netConns + 1] = TeleportService.TeleportInitFailed:Connect(function()
+        hopping = false
+    end)
+
+    netConns[#netConns + 1] = GuiService.ErrorMessageChanged:Connect(function()
+        local ok, message = pcall(function()
+            return GuiService:GetErrorMessage()
         end)
 
-        Money.stop = stop
-    end
+        if ok and type(message) == "string" and message ~= "" then
+            task.delay(BACK_DELAY, Net.rejoin)
+        end
+    end)
 
-    install()
-end
+    local prompts = CoreGui:FindFirstChild("RobloxPromptGui")
+    local overlay = prompts and prompts:FindFirstChild("promptOverlay")
 
-do
-    local function install()
-        local SettingsBox = Tabs.settings:Section({ Title = "Settings", Icon = "sliders-horizontal", Opened = true })
-
-        SettingsBox:Button({
-            Title = "Unload",
-            Desc = "Unload the script",
-            Callback = function()
-                espActive = false
-                playerEspActive = false
-                aimTpEnabled = false
-                setSpeedBoost(false)
-                finishTeleport()
-
-                unwatchContainers()
-
-                if Mountain.shutdown then
-                    Mountain.shutdown()
-                end
-
-                if Move.shutdown then
-                    Move.shutdown()
-                end
-
-                restoreInstantPrompts()
-
-                table.clear(pendingActions)
-                table.clear(promptRestores)
-                table.clear(claimed)
-
-                if Net.stop then
-                    Net.stop()
-                end
-
-                for _, connection in ipairs(netConns) do
-                    if connection then
-                        connection:Disconnect()
-                    end
-                end
-
-                table.clear(netConns)
-
-                afkRunning = false
-
-                for _, connection in ipairs(afkConns) do
-                    if connection then
-                        connection:Disconnect()
-                    end
-                end
-
-                table.clear(afkConns)
-
-                if Farm and Farm.stop then
-                    Farm.stop()
-                end
-
-                if Money and Money.stop then
-                    Money.stop()
-                end
-
-                for _, connection in ipairs({
-                    aimInputConn,
-                    espConn,
-                    schedulerConn,
-                    characterConn,
-                    speedConn,
-                    mountainConn,
-                    farmConn,
-                    moneyConn,
-                }) do
-                    if connection then
-                        connection:Disconnect()
-                    end
-                end
-
-                speedConn = nil
-                speedHooked = nil
-                mountainConn = nil
-                aimInputConn = nil
-                espConn = nil
-                schedulerConn = nil
-                characterConn = nil
-
-                clearRegistry()
-                clearPlayerEsp()
-
-                if EspHolder then
-                    EspHolder:Destroy()
-                    EspHolder = nil
-                end
-
-                rootPart = nil
-                
-                Window:Destroy()
+    if overlay then
+        netConns[#netConns + 1] = overlay.ChildAdded:Connect(function(child)
+            if child.Name:find("ErrorPrompt") then
+                task.delay(BACK_DELAY, Net.rejoin)
             end
-        })
+        end)
     end
-
-    install()
 end
+
+local SettingsBox = Tabs.settings:Section({ Title = "Settings", Icon = "sliders-horizontal", Opened = true })
+
+SettingsBox:Button({
+    Title = "Unload",
+    Desc = "Unload the script",
+    Callback = function()
+        espActive = false
+        playerEspActive = false
+        aimTpEnabled = false
+        setSpeedBoost(false)
+        finishTeleport()
+
+        unwatchContainers()
+
+        if Mountain.shutdown then
+            Mountain.shutdown()
+        end
+
+        if Move.shutdown then
+            Move.shutdown()
+        end
+
+        restoreInstantPrompts()
+
+        table.clear(pendingActions)
+        table.clear(promptRestores)
+        table.clear(claimed)
+
+        if Net.stop then
+            Net.stop()
+        end
+
+        for _, connection in ipairs(netConns) do
+            if connection then
+                connection:Disconnect()
+            end
+        end
+
+        table.clear(netConns)
+
+        afkRunning = false
+
+        for _, connection in ipairs(afkConns) do
+            if connection then
+                connection:Disconnect()
+            end
+        end
+
+        table.clear(afkConns)
+
+        if Farm.stop then
+            Farm.stop()
+        end
+
+        if Money.stop then
+            Money.stop()
+        end
+
+        for _, connection in ipairs({
+            aimInputConn,
+            espConn,
+            schedulerConn,
+            characterConn,
+            speedConn,
+            mountainConn,
+            farmConn,
+            moneyConn,
+        }) do
+            if connection then
+                connection:Disconnect()
+            end
+        end
+
+        speedConn = nil
+        speedHooked = nil
+        mountainConn = nil
+        aimInputConn = nil
+        espConn = nil
+        schedulerConn = nil
+        characterConn = nil
+
+        clearRegistry()
+        clearPlayerEsp()
+
+        if EspHolder then
+            EspHolder:Destroy()
+            EspHolder = nil
+        end
+
+        rootPart = nil
+        
+        Window:Destroy()
+    end
+})
