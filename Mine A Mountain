@@ -261,7 +261,10 @@ local speedActive = false
 local speedHooked
 local speedConn
 local minValue = 2000000
+local minLuck = 0
 local valueFilter = true
+local luckFilter = true
+local espMode = "value"
 local espScale = 0.7
 local playerScale = 0.6
 local boulderScale = 0.6
@@ -370,6 +373,24 @@ local function parseValue(text)
     end
 
     return base * multiplier
+end
+
+local function parseLuck(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+
+    local cleaned = text:lower():gsub("[%s%%]", "")
+    if cleaned == "" then
+        return 0
+    end
+
+    local number = tonumber(cleaned)
+    if not number then
+        return nil
+    end
+
+    return number / 100
 end
 
 local function bindCharacter(character)
@@ -539,12 +560,26 @@ local function crystalLuck(inst)
     return computeLuck(inst)
 end
 
-local function meetsFilter(inst, value)
+local function meetsValueFilter(inst, value)
     if not valueFilter then
         return true
     end
-
     return (value or crystalValue(inst)) >= minValue
+end
+
+local function meetsLuckFilter(inst)
+    if not luckFilter then
+        return true
+    end
+    return crystalLuck(inst) >= minLuck
+end
+
+local function meetsCrystalFilter(inst)
+    if espMode == "luck" then
+        return meetsLuckFilter(inst)
+    else
+        return meetsValueFilter(inst)
+    end
 end
 
 local function ownsGamepass(name)
@@ -966,7 +1001,7 @@ local function syncCrystal(inst)
     local hidden = not espActive or getAttr(inst, "Collected") == true
 
     if not hidden then
-        hidden = not meetsFilter(inst)
+        hidden = not meetsCrystalFilter(inst)
     end
 
     if hidden then
@@ -1610,9 +1645,16 @@ local function pickupCandidates(free, origin)
             return
         end
 
-        local value = crystalValue(child)
-        if not meetsFilter(child, value) then
-            return
+        if espMode == "luck" then
+            local luck = crystalLuck(child)
+            if not meetsLuckFilter(child) then
+                return
+            end
+        else
+            local value = crystalValue(child)
+            if not meetsValueFilter(child, value) then
+                return
+            end
         end
 
         local weight = crystalWeight(child)
@@ -1628,9 +1670,10 @@ local function pickupCandidates(free, origin)
         found[#found + 1] = {
             inst = child,
             prompt = crystalPrompt(child),
-            value = value,
+            value = crystalValue(child),
             weight = weight,
             distance = distance,
+            luck = crystalLuck(child),
         }
     end
 
@@ -1663,6 +1706,9 @@ local function pickupCandidates(free, origin)
     end
 
     table.sort(found, function(a, b)
+        if espMode == "luck" then
+            return a.luck > b.luck
+        end
         if a.value == b.value then
             return a.distance < b.distance
         end
@@ -1764,9 +1810,18 @@ local function refreshInstantPrompts()
 
     for _, part in ipairs(hits) do
         if isCrystal(part) and getAttr(part, "Collected") ~= true then
-            local prompt = crystalPrompt(part)
-            if prompt then
-                instantPromptPatch(prompt)
+            local shouldPick = false
+            if espMode == "luck" then
+                shouldPick = meetsLuckFilter(part)
+            else
+                shouldPick = meetsValueFilter(part)
+            end
+            
+            if shouldPick then
+                local prompt = crystalPrompt(part)
+                if prompt then
+                    instantPromptPatch(prompt)
+                end
             end
         end
     end
@@ -1800,11 +1855,20 @@ local function instantGrab()
 
     for _, part in ipairs(hits) do
         if part.Parent and isCrystal(part) and getAttr(part, "Collected") ~= true then
-            local distance = surfaceDistance(part, root.Position)
-            if distance <= PICK.range and (not best or distance < bestDistance) then
-                best = part
-                bestPrompt = crystalPrompt(part)
-                bestDistance = distance
+            local shouldPick = false
+            if espMode == "luck" then
+                shouldPick = meetsLuckFilter(part)
+            else
+                shouldPick = meetsValueFilter(part)
+            end
+            
+            if shouldPick then
+                local distance = surfaceDistance(part, root.Position)
+                if distance <= PICK.range and (not best or distance < bestDistance) then
+                    best = part
+                    bestPrompt = crystalPrompt(part)
+                    bestDistance = distance
+                end
             end
         end
     end
@@ -3288,6 +3352,30 @@ do
             end
         })
 
+        CrystalBox:Dropdown({
+            Title = "ESP Mode",
+            Desc = "Filter crystals by Value or Luck",
+            Values = { "Value", "Luck" },
+            Value = { "Value" },
+            Multi = false,
+            AllowNone = false,
+            Callback = function(option)
+                if type(option) == "table" and option[1] then
+                    espMode = option[1]:lower()
+                elseif type(option) == "string" then
+                    espMode = option:lower()
+                end
+                if espMode == "luck" then
+                    valueFilter = false
+                    luckFilter = minLuck > 0
+                else
+                    valueFilter = minValue > 0
+                    luckFilter = false
+                end
+                requestRefresh()
+            end
+        })
+
         CrystalBox:Slider({
             Title = "Crystal Size",
             Desc = "Adjust crystal ESP size",
@@ -3303,9 +3391,11 @@ do
             end
         })
 
+        CrystalBox:Divider()
+
         CrystalBox:Paragraph({
             Title = "Min Value",
-            Desc = "Example: 500k, 2m, 1.5b. Empty shows everything",
+            Desc = "Example: 500k, 2m, 1.5b. Empty shows everything (Value mode only)",
         })
 
         local function setMinValue(text)
@@ -3316,7 +3406,9 @@ do
 
             minValue = math.max(parsed, 0)
             valueFilter = minValue > 0
-            requestRefresh()
+            if espMode == "value" then
+                requestRefresh()
+            end
         end
 
         CrystalBox:Input({
@@ -3326,6 +3418,33 @@ do
             Placeholder = "2m",
             Type = "Input",
             Callback = setMinValue
+        })
+
+        CrystalBox:Paragraph({
+            Title = "Min Luck",
+            Desc = "Example: 50, 100, 250. Empty shows everything (Luck mode only)",
+        })
+
+        local function setMinLuck(text)
+            local parsed = parseLuck(text)
+            if not parsed then
+                return
+            end
+
+            minLuck = parsed
+            luckFilter = minLuck > 0
+            if espMode == "luck" then
+                requestRefresh()
+            end
+        end
+
+        CrystalBox:Input({
+            Title = "Min Luck %",
+            Desc = "Hide crystals with luck less than this",
+            Value = "",
+            Placeholder = "50",
+            Type = "Input",
+            Callback = setMinLuck
         })
 
         StatsLabel = CrystalBox:Paragraph({
@@ -5324,11 +5443,18 @@ do
                     return
                 end
 
-                local value = crystalValue(inst)
-                if not meetsFilter(inst, value) then
-                    return
+                if espMode == "luck" then
+                    if not meetsLuckFilter(inst) then
+                        return
+                    end
+                else
+                    local value = crystalValue(inst)
+                    if not meetsValueFilter(inst, value) then
+                        return
+                    end
                 end
 
+                local value = crystalValue(inst)
                 local distance = (inst.Position - origin).Magnitude
                 if distance > COLLECT_RANGE then
                     return
