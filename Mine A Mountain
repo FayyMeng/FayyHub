@@ -305,8 +305,8 @@ local function formatShort(n, prefix)
 
     local index = 0
     while n >= 1000 and index < #SUFFIXES - 1 do
-        n /= 1000
-        index += 1
+        n = n / 1000
+        index = index + 1
     end
 
     return string.format("%s%s%.2f%s", sign, prefix, n, SUFFIXES[index + 1])
@@ -492,19 +492,19 @@ local function combinedLuckMult(inst)
     if type(extra) == "string" and extra ~= "" then
         for name in string.gmatch(extra, "[^,]+") do
             if name ~= "" then
-                multiplier *= mutationLuck(name)
+                multiplier = multiplier * mutationLuck(name)
             end
         end
     end
 
     if getAttr(inst, "IsBloodCrystal") == true then
-        multiplier *= LUCK.blood
+        multiplier = multiplier * LUCK.blood
     end
 
     if getAttr(inst, "AdminMutation") == "Radioactive" and mutation ~= "Radioactive" then
         local hasRadioactive = type(extra) == "string" and extra:find("Radioactive", 1, true) ~= nil
         if not hasRadioactive then
-            multiplier *= mutationLuck("Radioactive")
+            multiplier = multiplier * mutationLuck("Radioactive")
         end
     end
 
@@ -521,7 +521,7 @@ local function computeLuck(inst)
     local base = (LUCK.rarity[tier] or LUCK.rarity[1]) * math.min(weight, LUCK.cap) ^ LUCK.exponent * LUCK.base
 
     if getAttr(inst, "BombCrystal") == true then
-        base *= LUCK.bomb
+        base = base * LUCK.bomb
     end
 
     return base * combinedLuckMult(inst)
@@ -630,7 +630,7 @@ local function backpackCapacity()
 
     local base = realStat("CarryWeight") or 10
     if ownsGamepass("CarryKgPlus4") then
-        base *= 4
+        base = base * 4
     end
 
     local total = base + (realStat("CarryWeightBonus") or 0)
@@ -653,7 +653,7 @@ local function backpackWeight()
             if child:IsA("Tool") and getAttr(child, "Tier") ~= nil then
                 local kg = tonumber(getAttr(child, "WeightKg"))
                 if kg then
-                    total += kg
+                    total = total + kg
                 end
             end
         end
@@ -832,7 +832,7 @@ local function destroyEntry(inst, entry)
     end
 
     espCache[inst] = nil
-    espCount -= 1
+    espCount = espCount - 1
     statsDirty = true
 end
 
@@ -867,7 +867,7 @@ end
 local function applyExtra(entry, distanceText)
     entry.distanceText = distanceText
     entry.extra.Text = string.format(
-        '<font color="#%s">%s</font>  \u{2022}  <font color="#%s">%s</font>',
+        '<font color="#%s">%s</font>  •  <font color="#%s">%s</font>',
         COLORS.hexDistance,
         distanceText,
         COLORS.hexLuck,
@@ -887,6 +887,15 @@ local function buildTitle(inst)
 end
 
 local function applyDetails(inst, entry, origin)
+    if espMode == "luck" then
+        local luckOk, luck = pcall(crystalLuck, inst)
+        entry.luckText = formatLuck(luckOk and luck or 0)
+        entry.rarity.Text = ""
+        entry.info.Text = ""
+        entry.extra.Text = string.format('<font color="#%s">%s</font>', COLORS.hexLuck, entry.luckText)
+        return
+    end
+
     local title = buildTitle(inst)
     local color = crystalColor(inst)
     local money = formatShort(crystalValue(inst), "$")
@@ -897,7 +906,7 @@ local function applyDetails(inst, entry, origin)
 
     entry.rarity.Text = title
     entry.rarity.TextColor3 = color
-    entry.info.Text = string.format("%s  \u{2022}  %s", money, weight)
+    entry.info.Text = string.format("%s  •  %s", money, weight)
 
     local distanceText = "--"
     if origin then
@@ -935,7 +944,7 @@ local function untrackCrystal(inst)
     end
 
     registry[inst] = nil
-    registryCount -= 1
+    registryCount = registryCount - 1
     dirty[inst] = nil
     candidates[inst] = nil
     statsDirty = true
@@ -950,7 +959,7 @@ local function trackCrystal(inst)
 
     local conns = {}
     registry[inst] = conns
-    registryCount += 1
+    registryCount = registryCount + 1
     statsDirty = true
 
     local ok = pcall(function()
@@ -1021,7 +1030,7 @@ local function syncCrystal(inst)
 
         entry = result
         espCache[inst] = entry
-        espCount += 1
+        espCount = espCount + 1
         statsDirty = true
     end
 
@@ -1206,19 +1215,19 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
 
     local deadline = now + ESP.budget
     if next(dirty) ~= nil then
-    for inst in pairs(dirty) do
-        local ok, err = pcall(syncCrystal, inst)
-        if not ok then
-            dirty[inst] = nil
-            reportError("sync", err)
+        for inst in pairs(dirty) do
+            local ok, err = pcall(syncCrystal, inst)
+            if not ok then
+                dirty[inst] = nil
+                reportError("sync", err)
+            end
+            if os.clock() > deadline then
+                break
+            end
         end
-        if os.clock() > deadline then
-            break
-        end
-    end
     end
 
-    sweepAccumulator += deltaTime
+    sweepAccumulator = sweepAccumulator + deltaTime
     if sweepAccumulator >= ESP.sweep then
         sweepAccumulator = 0
         local ok, err = pcall(function()
@@ -1230,7 +1239,7 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    distanceAccumulator += deltaTime
+    distanceAccumulator = distanceAccumulator + deltaTime
     if distanceAccumulator >= PACE.distance then
         distanceAccumulator = 0
         local ok, err = pcall(updateDistances)
@@ -1936,8 +1945,8 @@ local function pickupStep()
             claimed[entry.inst] = now
 
             if grabCrystal(entry.inst, entry.prompt) then
-                budget -= entry.weight
-                grabs += 1
+                budget = budget - entry.weight
+                grabs = grabs + 1
             end
         end
     end
@@ -1958,7 +1967,7 @@ local function updateBackpackLabel()
     local used = backpackWeight()
 
     if capacity == math.huge then
-        BackpackLabel:SetText(string.format("Bag %.1f / \u{221E} kg", used))
+        BackpackLabel:SetText(string.format("Bag %.1f / ∞ kg", used))
         return
     end
 
@@ -2052,7 +2061,7 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
     end
 
     if instantPromptActive then
-        instantAccumulator += deltaTime
+        instantAccumulator = instantAccumulator + deltaTime
         if instantAccumulator >= PICK.instantTick then
             instantAccumulator = 0
             local ok, err = pcall(refreshInstantPrompts)
@@ -2078,7 +2087,7 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    statsAccumulator += deltaTime
+    statsAccumulator = statsAccumulator + deltaTime
     if statsAccumulator >= PACE.stats then
         statsAccumulator = 0
         local ok, err = pcall(updateBackpackLabel)
@@ -2296,7 +2305,7 @@ local function unfavoriteAll()
                     child:SetAttribute("Favorited", false)
                 end)
                 fireRemote(ToggleFavorite, child, false)
-                cleared += 1
+                cleared = cleared + 1
             end
         end
     end
@@ -2366,973 +2375,6 @@ local function doSell()
     end)
 
     return true
-end
-
-do
-    local function install()
-        local BOULDER_INFO = {
-            Mossite = {
-                rarity = "Common",
-                pickaxe = "Titanium Spike",
-                crystals = "8-11",
-                runes = "Luck / Haste",
-                color = Color3.fromRGB(150, 220, 120),
-            },
-            Voltite = {
-                rarity = "Uncommon",
-                pickaxe = "Celestial Apex",
-                crystals = "10-14",
-                runes = "Storm / Weight",
-                color = Color3.fromRGB(110, 190, 240),
-            },
-            Gildrite = {
-                rarity = "Rare",
-                pickaxe = "Eclipse Fang",
-                crystals = "11-15",
-                runes = "Fortune / Detonation",
-                color = Color3.fromRGB(255, 200, 60),
-            },
-            Rimeveil = {
-                rarity = "Epic",
-                pickaxe = "Voidreign",
-                crystals = "13-18",
-                runes = "Preservation / Warmth",
-                color = Color3.fromRGB(170, 100, 255),
-            },
-            Nocturnite = {
-                rarity = "Legendary",
-                pickaxe = "The Terminus",
-                crystals = "16-22",
-                runes = "Excavator / Colossus",
-                color = Color3.fromRGB(255, 80, 180),
-            },
-        }
-
-        local BOULDER_OFFSET = Vector3.new(0, 7, 0)
-        local BOULDER_WIDTH = 300
-        local BOULDER_HEIGHT = 78
-        local BOULDER_STEP = 0.4
-
-        local GRAB_RANGE = 20
-        local GRAB_STEP = 0.15
-        local GRAB_LIMIT = 4
-        local GRAB_RETRY = 0.2
-
-        local boulderEsp = false
-        local autoGrab = false
-
-        local boulderCache = {}
-        local grabbed = {}
-
-        local boulderClock = 0
-        local grabClock = 0
-
-        local scanParams = OverlapParams.new()
-        scanParams.FilterType = Enum.RaycastFilterType.Exclude
-
-        local function textSize()
-            return math.max(6, math.floor(ESP.text * boulderScale + 0.5))
-        end
-
-        local function anchorPart(inst)
-            if inst:IsA("BasePart") then
-                return inst
-            end
-            if inst:IsA("Model") then
-                return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart")
-            end
-            return nil
-        end
-
-        local function createCard(anchor, offset, colors, width, height)
-            local billboard = Instance.new("BillboardGui")
-            billboard.Name = "UniverseMountainEsp"
-            billboard.Adornee = anchor
-            billboard.AlwaysOnTop = true
-            billboard.ResetOnSpawn = false
-            billboard.LightInfluence = 0
-            billboard.Size = UDim2.fromOffset(width * boulderScale, height * boulderScale)
-            billboard.StudsOffsetWorldSpace = offset
-            billboard.MaxDistance = math.huge
-            billboard.Parent = EspHolder
-
-            local total = #colors
-            local size = textSize()
-            local labels = {}
-            local constraints = {}
-
-            for index, color in ipairs(colors) do
-                local label, constraint = newLabel("Line" .. index, billboard, index - 1, total, color, false, size)
-                labels[index] = label
-                constraints[index] = constraint
-            end
-
-            return {
-                gui = billboard,
-                labels = labels,
-                constraints = constraints,
-                width = width,
-                height = height,
-                text = {},
-            }
-        end
-
-        local function scaleCard(entry)
-            entry.gui.Size = UDim2.fromOffset(entry.width * boulderScale, entry.height * boulderScale)
-
-            local size = textSize()
-            for _, constraint in ipairs(entry.constraints) do
-                constraint.MaxTextSize = size
-            end
-        end
-
-        local function setLine(entry, index, text)
-            if entry.text[index] == text then
-                return
-            end
-            entry.text[index] = text
-            entry.labels[index].Text = text
-        end
-
-        local function dropCard(cache, key)
-            local entry = cache[key]
-            if not entry then
-                return
-            end
-
-            if entry.gui then
-                entry.gui:Destroy()
-            end
-            cache[key] = nil
-        end
-
-        local function clearCache(cache)
-            for key in pairs(cache) do
-                dropCard(cache, key)
-            end
-        end
-
-        local function boulderKind(inst)
-            for kind in pairs(BOULDER_INFO) do
-                if inst.Name:find(kind, 1, true) then
-                    return kind
-                end
-            end
-            return nil
-        end
-
-        local function boulderRoots()
-            local roots = {}
-
-            local decorations = Workspace:FindFirstChild("MountainDecorations")
-            local folder = decorations and decorations:FindFirstChild("Boulders")
-            if folder then
-                roots[#roots + 1] = folder
-            end
-
-            local test = Workspace:FindFirstChild("BoulderTest")
-            if test then
-                roots[#roots + 1] = test
-            end
-
-            return roots
-        end
-
-        local function eachBoulder(fn)
-            for _, container in ipairs(boulderRoots()) do
-                for _, child in ipairs(container:GetChildren()) do
-                    local kind = boulderKind(child)
-                    if kind then                        fn(child, kind)
-                    end
-                end
-            end
-        end
-
-        local function isRune(inst)
-            if getAttr(inst, "RuneId") ~= nil then
-                return true
-            end
-            if getAttr(inst, "IsRune") == true then
-                return true
-            end
-            if getAttr(inst, "RuneName") ~= nil then
-                return true
-            end
-            return inst.Name:find(" Rune", 1, true) ~= nil
-        end
-
-        local function runeTitle(inst)
-            local id = getAttr(inst, "RuneId") or getAttr(inst, "RuneName")
-            if type(id) == "string" and id ~= "" then
-                if id:find("Rune", 1, true) then
-                    return id
-                end
-                return id .. " Rune"
-            end
-            return inst.Name
-        end
-
-        local function eachRune(origin, radius, fn)
-            local seen = {}
-
-            local function offer(owner, part)
-                if not owner or seen[owner] then
-                    return
-                end
-
-                local anchor = part or anchorPart(owner)
-                if not anchor or not anchor.Parent then
-                    return
-                end
-
-                if (anchor.Position - origin).Magnitude > radius then
-                    return
-                end
-
-                seen[owner] = true
-                fn(owner, anchor)
-            end
-
-            local function scanFolder(container)
-                if not container then
-                    return
-                end
-
-                for _, child in ipairs(container:GetChildren()) do
-                    if isRune(child) then
-                        offer(child, anchorPart(child))
-                    end
-                end
-            end
-
-            scanFolder(Workspace)
-            scanFolder(Workspace:FindFirstChild("Things"))
-            scanFolder(Workspace:FindFirstChild("DroppedCrystals"))
-
-            local character = LocalPlayer.Character
-            scanParams.FilterDescendantsInstances = character and { character } or {}
-
-            local ok, parts = pcall(function()
-                return Workspace:GetPartBoundsInRadius(origin, radius, scanParams)
-            end)
-
-            if not ok or not parts then
-                return
-            end
-
-            for _, part in ipairs(parts) do
-                if isRune(part) then
-                    offer(part, part)
-                else
-                    local parent = part.Parent
-                    if parent and parent ~= Workspace and isRune(parent) then
-                        offer(parent, anchorPart(parent) or part)
-                    end
-                end
-            end
-        end
-
-        local function syncBoulders()
-            local root = getRoot()
-            local origin = root and root.Position or nil
-            local seen = {}
-
-            eachBoulder(function(model, kind)
-                local anchor = anchorPart(model)
-                if not anchor then
-                    return
-                end
-
-                seen[model] = true
-                local info = BOULDER_INFO[kind]
-                local entry = boulderCache[model]
-
-                if entry and not entry.gui.Parent then
-                    dropCard(boulderCache, model)
-                    entry = nil
-                end
-
-                if not entry then
-                    entry = createCard(
-                        anchor,
-                        BOULDER_OFFSET,
-                        { info.color, COLORS.extra, COLORS.money },
-                        BOULDER_WIDTH,
-                        BOULDER_HEIGHT
-                    )
-                    boulderCache[model] = entry
-                end
-
-                if entry.gui.Adornee ~= anchor then
-                    entry.gui.Adornee = anchor
-                end
-
-                scaleCard(entry)
-                setLine(entry, 1, string.format("[%s] %s", info.rarity, kind))
-                setLine(entry, 2, string.format("%s  \u{2022}  %s crystals", info.pickaxe, info.crystals))
-
-                local distance = origin and formatDistance((anchor.Position - origin).Magnitude) or "--"
-                setLine(entry, 3, string.format("%s  \u{2022}  %s", info.runes, distance))
-            end)
-
-            local stale
-            for model in pairs(boulderCache) do
-                if not seen[model] then
-                    stale = stale or {}
-                    stale[#stale + 1] = model
-                end
-            end
-
-            if stale then
-                for _, model in ipairs(stale) do
-                    dropCard(boulderCache, model)
-                end
-            end
-        end
-
-        local function grabRunes(radius)
-            local root = getRoot()
-            if not root then
-                return 0
-            end
-
-            local now = os.clock()
-            local fired = 0
-
-            for prompt, stamp in pairs(grabbed) do
-                if now - stamp > 5 or not prompt.Parent then
-                    grabbed[prompt] = nil
-                end
-            end
-
-            eachRune(root.Position, radius or GRAB_RANGE, function(owner, part)
-                if fired >= GRAB_LIMIT then
-                    return
-                end
-
-                local prompt = owner:FindFirstChildOfClass("ProximityPrompt")
-                if not prompt then
-                    prompt = crystalPrompt(owner)
-                end
-                if not prompt and part ~= owner then
-                    prompt = crystalPrompt(part)
-                end
-
-                if not prompt or not prompt.Parent then
-                    return
-                end
-
-                local last = grabbed[prompt]
-                if last and now - last < GRAB_RETRY then
-                    return
-                end
-
-                grabbed[prompt] = now
-
-                if firePrompt(prompt) then
-                    fired += 1
-                    WindUI:Notify({
-                        Title = "Mine a Mountain",
-                        Content = string.format("Rune: %s", runeTitle(owner)),
-                        Duration = 2,
-                        Icon = "gem",
-                    })
-                end
-            end)
-
-            return fired
-        end
-
-        function Mountain.applyScale()
-            for _, entry in pairs(boulderCache) do
-                scaleCard(entry)
-            end
-        end
-
-        function Mountain.boulderList()
-            local list = {}
-
-            for _, kind in ipairs({ "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite" }) do
-                local info = BOULDER_INFO[kind]
-                list[#list + 1] = string.format("%s  \u{2022}  %s", kind, info.pickaxe)
-            end
-
-            return list
-        end
-
-        function Mountain.setBoulderEsp(value)
-            boulderEsp = value
-            if value then
-                boulderClock = math.huge
-            else
-                clearCache(boulderCache)
-            end
-        end
-
-        function Mountain.setAutoGrab(value)
-            autoGrab = value
-            if value then
-                grabClock = math.huge
-            else
-                table.clear(grabbed)
-            end
-        end
-
-        function Mountain.grabRange()
-            return GRAB_RANGE
-        end
-
-        function Mountain.grabNear(radius)
-            local ok, fired = pcall(grabRunes, radius)
-
-            if not ok then
-                reportError("runeGrab", fired)
-                return 0
-            end
-
-            return fired or 0
-        end
-
-        function Mountain.runesNear(radius)
-            local root = getRoot()
-            if not root then
-                return 0
-            end
-
-            local count = 0
-
-            eachRune(root.Position, radius or GRAB_RANGE, function()
-                count += 1
-            end)
-
-            return count
-        end
-
-        function Mountain.shutdown()
-            boulderEsp = false
-            autoGrab = false
-
-            clearCache(boulderCache)
-            table.clear(grabbed)
-        end
-
-        mountainConn = RunService.Heartbeat:Connect(function(deltaTime)
-            if boulderEsp then
-                boulderClock += deltaTime
-                if boulderClock >= BOULDER_STEP then
-                    boulderClock = 0
-                    local ok, err = pcall(syncBoulders)
-                    if not ok then
-                        reportError("boulder", err)
-                    end
-                end
-            end
-
-            if autoGrab then
-                grabClock += deltaTime
-                if grabClock >= GRAB_STEP then
-                    grabClock = 0
-                    local ok, err = pcall(grabRunes)
-                    if not ok then
-                        reportError("runeGrab", err)
-                    end
-                end
-            end
-        end)
-    end
-
-    install()
-end
-
-local Move = {}
-
-do
-    local function install()
-        local FLY_KEYS = {
-            { key = Enum.KeyCode.W, axis = "look", sign = 1 },
-            { key = Enum.KeyCode.S, axis = "look", sign = -1 },
-            { key = Enum.KeyCode.D, axis = "right", sign = 1 },
-            { key = Enum.KeyCode.A, axis = "right", sign = -1 },
-            { key = Enum.KeyCode.Space, axis = "up", sign = 1 },
-            { key = Enum.KeyCode.LeftControl, axis = "up", sign = -1 },
-        }
-
-        local flyActive = false
-        local noclipActive = false
-        local jumpActive = false
-        local flySpeed = 100
-
-        local velocity
-        local gyro
-        local flyConn
-        local noclipConn
-        local jumpConn
-        local collisions = {}
-
-        local function humanoidOf()
-            local character = LocalPlayer.Character
-            return character and character:FindFirstChildOfClass("Humanoid")
-        end
-
-        local function dropMovers()
-            if velocity then
-                pcall(function()
-                    velocity:Destroy()
-                end)
-                velocity = nil
-            end
-
-            if gyro then
-                pcall(function()
-                    gyro:Destroy()
-                end)
-                gyro = nil
-            end
-        end
-
-        local function attach(root)
-            dropMovers()
-
-            local ok = pcall(function()
-                local body = Instance.new("BodyVelocity")
-                body.Name = "UniverseFlyVelocity"
-                body.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-                body.P = 9e4
-                body.Velocity = Vector3.zero
-                body.Parent = root
-                velocity = body
-
-                local spin = Instance.new("BodyGyro")
-                spin.Name = "UniverseFlyGyro"
-                spin.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-                spin.P = 9e4
-                spin.D = 500
-                spin.CFrame = root.CFrame
-                spin.Parent = root
-                gyro = spin
-            end)
-
-            if not ok then
-                dropMovers()
-            end
-
-            return ok
-        end
-
-        local function flyStep()
-            if tpState then
-                return
-            end
-
-            local root = getRoot()
-            if not root then
-                return
-            end
-
-            if not velocity or velocity.Parent ~= root then
-                if not attach(root) then
-                    return
-                end
-            end
-
-            local camera = Workspace.CurrentCamera
-            if not camera then
-                return
-            end
-
-            local humanoid = humanoidOf()
-            if humanoid and not humanoid.PlatformStand then
-                humanoid.PlatformStand = true
-            end
-
-            local frame = camera.CFrame
-            local direction = Vector3.zero
-
-            if not UserInputService:GetFocusedTextBox() then
-                for _, entry in ipairs(FLY_KEYS) do
-                    if UserInputService:IsKeyDown(entry.key) then
-                        if entry.axis == "look" then
-                            direction += frame.LookVector * entry.sign
-                        elseif entry.axis == "right" then
-                            direction += frame.RightVector * entry.sign
-                        else
-                            direction += Vector3.yAxis * entry.sign
-                        end
-                    end
-                end
-            end
-
-            if direction.Magnitude > 0.1 then
-                velocity.Velocity = direction.Unit * flySpeed
-            else
-                velocity.Velocity = Vector3.zero
-            end
-
-            local flat = Vector3.new(frame.LookVector.X, 0, frame.LookVector.Z)
-            if flat.Magnitude > 0.05 then
-                gyro.CFrame = CFrame.new(root.Position, root.Position + flat)
-            end
-        end
-
-        local function noclipStep()
-            local character = LocalPlayer.Character
-            if not character then
-                return
-            end
-
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    if collisions[part] == nil then
-                        collisions[part] = true
-                    end
-
-                    part.CanCollide = false
-                end
-            end
-        end
-
-        function Move.setFly(value)
-            flyActive = value
-
-            if value then
-                local root = getRoot()
-                if root then
-                    attach(root)
-                end
-
-                if not flyConn then
-                    flyConn = RunService.Heartbeat:Connect(function()
-                        if not flyActive then
-                            return
-                        end
-
-                        local ok, err = pcall(flyStep)
-                        if not ok then
-                            reportError("fly", err)
-                        end
-                    end)
-                end
-
-                return
-            end
-
-            if flyConn then
-                flyConn:Disconnect()
-                flyConn = nil
-            end
-
-            dropMovers()
-
-            local humanoid = humanoidOf()
-            if humanoid then
-                pcall(function()
-                    humanoid.PlatformStand = false
-                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end)
-            end
-        end
-
-        function Move.setFlySpeed(value)
-            flySpeed = math.clamp(value, 10, 500)
-        end
-
-        function Move.setNoclip(value)
-            noclipActive = value
-
-            if value then
-                if not noclipConn then
-                    noclipConn = RunService.Heartbeat:Connect(function()
-                        if not noclipActive then
-                            return
-                        end
-
-                        local ok, err = pcall(noclipStep)
-                        if not ok then
-                            reportError("noclip", err)
-                        end
-                    end)
-                end
-
-                return
-            end
-
-            if noclipConn then
-                noclipConn:Disconnect()
-                noclipConn = nil
-            end
-
-            for part, state in pairs(collisions) do
-                if part.Parent then
-                    pcall(function()
-                        part.CanCollide = state
-                    end)
-                end
-            end
-
-            table.clear(collisions)
-        end
-
-        function Move.setInfJump(value)
-            jumpActive = value
-
-            if value then
-                if not jumpConn then
-                    jumpConn = UserInputService.JumpRequest:Connect(function()
-                        if not jumpActive then
-                            return
-                        end
-
-                        local humanoid = humanoidOf()
-                        if humanoid then
-                            pcall(function()
-                                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                            end)
-                        end
-                    end)
-                end
-
-                return
-            end
-
-            if jumpConn then
-                jumpConn:Disconnect()
-                jumpConn = nil
-            end
-        end
-
-        function Move.shutdown()
-            Move.setFly(false)
-            Move.setNoclip(false)
-            Move.setInfJump(false)
-            Move.glideStop()
-        end
-    end
-
-    install()
-end
-
-do
-    local function install()
-        local GLIDE_SPEED = 350
-        local AIM_RATE = 9
-        local SNAP_GAP = 0.35
-        local RESPONSE = 200
-        local STREAM_GAP = 0.5
-        local HOLD_FORCE = 1e7
-        local HOLD_TORQUE = 1e7
-
-        local attachment
-        local mover
-        local aligner
-        local cursor
-        local facing
-        local goalFrame
-        local aimSpot
-        local streamClock = 0
-        local glideConn
-        local running = false
-
-        local function humanoidOf()
-            local character = LocalPlayer.Character
-            return character and character:FindFirstChildOfClass("Humanoid")
-        end
-
-        local function detach()
-            if mover then
-                pcall(function()
-                    mover:Destroy()
-                end)
-                mover = nil
-            end
-
-            if aligner then
-                pcall(function()
-                    aligner:Destroy()
-                end)
-                aligner = nil
-            end
-
-            if attachment then
-                pcall(function()
-                    attachment:Destroy()
-                end)
-                attachment = nil
-            end
-        end
-
-        local function attach(root)
-            detach()
-
-            local ok = pcall(function()
-                local point = Instance.new("Attachment")
-                point.Name = "UniverseGlidePoint"
-                point.Parent = root
-
-                local position = Instance.new("AlignPosition")
-                position.Name = "UniverseGlidePosition"
-                position.Mode = Enum.PositionAlignmentMode.OneAttachment
-                position.Attachment0 = point
-                position.RigidityEnabled = false
-                position.ApplyAtCenterOfMass = true
-                position.ReactionForceEnabled = false
-                position.MaxForce = HOLD_FORCE
-                position.MaxVelocity = math.huge
-                position.Responsiveness = RESPONSE
-                position.Position = root.Position
-                position.Parent = root
-
-                local orientation = Instance.new("AlignOrientation")
-                orientation.Name = "UniverseGlideOrientation"
-                orientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
-                orientation.Attachment0 = point
-                orientation.RigidityEnabled = false
-                orientation.ReactionTorqueEnabled = false
-                orientation.MaxTorque = HOLD_TORQUE
-                orientation.MaxAngularVelocity = math.huge
-                orientation.Responsiveness = RESPONSE
-                orientation.CFrame = root.CFrame.Rotation
-                orientation.Parent = root
-
-                attachment = point
-                mover = position
-                aligner = orientation
-            end)
-
-            if not ok then
-                detach()
-            end
-
-            return ok
-        end
-
-        local function step(deltaTime)
-            if not goalFrame then
-                return
-            end
-
-            local root = getRoot()
-            if not root then
-                return
-            end
-
-            if not mover or mover.Parent ~= root or not aligner or aligner.Parent ~= root then
-                if not attach(root) then
-                    return
-                end
-
-                cursor = root.Position
-                facing = root.CFrame.Rotation
-            end
-
-            local humanoid = humanoidOf()
-            if humanoid and not humanoid.PlatformStand then
-                pcall(function()
-                    humanoid.PlatformStand = true
-                end)
-            end
-
-            cursor = cursor or root.Position
-            facing = facing or root.CFrame.Rotation
-
-            local delta = goalFrame.Position - cursor
-            local span = GLIDE_SPEED * deltaTime
-
-            if delta.Magnitude <= math.max(span, SNAP_GAP) then
-                cursor = goalFrame.Position
-            else
-                cursor += delta.Unit * span
-            end
-
-            streamClock += deltaTime
-            if streamClock >= STREAM_GAP then
-                streamClock = 0
-                requestStream(goalFrame.Position)
-            end
-
-            local look = goalFrame.Rotation
-
-            if aimSpot then
-                local gap = aimSpot - cursor
-                if gap.Magnitude > 0.1 then
-                    look = CFrame.lookAt(cursor, aimSpot).Rotation
-                end
-            end
-
-            facing = facing:Lerp(look, 1 - math.exp(-AIM_RATE * deltaTime))
-
-            mover.Position = cursor
-            aligner.CFrame = facing
-        end
-
-        function Move.glide(goal, aim)
-            if typeof(goal) ~= "CFrame" then
-                return false
-            end
-
-            goalFrame = goal
-            aimSpot = typeof(aim) == "Vector3" and aim or nil
-
-            if not running then
-                running = true
-
-                local root = getRoot()
-                if root then
-                    cursor = root.Position
-                    facing = root.CFrame.Rotation
-                    attach(root)
-                end
-            end
-
-            if not glideConn then
-                glideConn = RunService.Heartbeat:Connect(function(deltaTime)
-                    if not running then
-                        return
-                    end
-
-                    local ok, err = pcall(step, deltaTime)
-                    if not ok then
-                        reportError("glide", err)
-                    end
-                end)
-            end
-
-            return true
-        end
-
-        function Move.glideStop()
-            running = false
-            goalFrame = nil
-            aimSpot = nil
-            cursor = nil
-            facing = nil
-            streamClock = 0
-
-            if glideConn then
-                glideConn:Disconnect()
-                glideConn = nil
-            end
-
-            detach()
-
-            local root = getRoot()
-            if root then
-                pcall(function()
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                end)
-            end
-
-            local humanoid = humanoidOf()
-            if humanoid then
-                pcall(function()
-                    humanoid.PlatformStand = false
-                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                end)
-            end
-        end
-    end
-
-    install()
 end
 
 local CrystalBox = Tabs.crystals:Section({ Title = "Crystal ESP", Icon = "gem", Opened = true })
@@ -3606,7 +2648,7 @@ farmConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    labelClock += deltaTime
+    labelClock = labelClock + deltaTime
     if labelClock >= 0.25 then
         labelClock = 0
         StatusLabel.Desc = Farm.statusText or "Idle"
@@ -3799,7 +2841,7 @@ moneyConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    moneyLabelClock += deltaTime
+    moneyLabelClock = moneyLabelClock + deltaTime
     if moneyLabelClock >= 0.25 then
         moneyLabelClock = 0
         MoneyStatusLabel.Desc = Money.statusText or "Idle"
@@ -3981,7 +3023,7 @@ do
         local link = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&excludeFullGames=true&limit=100", PLACE)
 
         if type(cursor) == "string" and cursor ~= "" then
-            link ..= "&cursor=" .. cursor
+            link = link .. "&cursor=" .. cursor
         end
 
         local body, code = grab(link)
