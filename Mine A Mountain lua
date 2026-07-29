@@ -278,6 +278,10 @@ local S = {
     instantPatched      = {},
     instantAccumulator  = math.huge,
     fastDigActive       = false,
+    pickupValueActive   = false,
+    pickupLuckActive    = false,
+    pickupMinValue      = 1000000000,
+    pickupMinLuck       = 0,
     StatsLabel          = nil,
     BackpackLabel       = nil,
 }
@@ -1714,7 +1718,32 @@ local function pickupCandidates(free, origin)
         end
 
         local value = crystalValue(child)
-        if not meetsFilter(child, value) then
+
+        -- ESP min-value filter (existing)
+        if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
+            if not meetsFilter(child, value) then
+                return
+            end
+        end
+
+        -- Auto Pickup by Value
+        if S.pickupValueActive then
+            if value < (S.pickupMinValue or 0) then
+                return
+            end
+        end
+
+        -- Auto Pickup by Luck
+        if S.pickupLuckActive then
+            local ok, luck = pcall(crystalLuck, child)
+            local luckPct = (ok and luck or 0) * 100
+            if luckPct < (S.pickupMinLuck or 0) then
+                return
+            end
+        end
+
+        -- If only value/luck modes (no plain auto pickup), still allow
+        if not S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
             return
         end
 
@@ -2081,7 +2110,7 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    if S.autoPickupActive then
+    if S.autoPickupActive or S.pickupValueActive or S.pickupLuckActive then
         local ok, err = pcall(pickupStep)
         if not ok then
             reportError("pickup", err)
@@ -3622,6 +3651,55 @@ do
             Desc = "Automatically pickup runes",
             Value = false,
             Callback = Mountain.setAutoGrab
+        })
+
+        PickupBox:Paragraph({
+            Title = "Pickup by Value / Luck",
+            Desc = "Only picks nearby crystals that meet the minimum value or luck. Works independently of plain Auto Pickup.",
+        })
+
+        PickupBox:Toggle({
+            Title = "Auto Pickup by Value",
+            Desc = "Pickup nearby crystals with value >= Min Value",
+            Value = false,
+            Callback = function(value)
+                S.pickupValueActive = value
+            end
+        })
+
+        PickupBox:Input({
+            Title = "Min Pickup Value",
+            Desc = "Example: 500k, 1b, 2.5b",
+            Value = "1b",
+            Type = "Input",
+            Callback = function(input)
+                local parsed = parseValue(input)
+                if parsed then
+                    S.pickupMinValue = math.max(parsed, 0)
+                end
+            end
+        })
+
+        PickupBox:Toggle({
+            Title = "Auto Pickup by Luck",
+            Desc = "Pickup nearby crystals with luck % >= Min Luck",
+            Value = false,
+            Callback = function(value)
+                S.pickupLuckActive = value
+            end
+        })
+
+        PickupBox:Input({
+            Title = "Min Pickup Luck (%)",
+            Desc = "Example: 1 = 1%, 50 = 50%",
+            Value = "0",
+            Type = "Input",
+            Callback = function(input)
+                local parsed = tonumber(input)
+                if parsed then
+                    S.pickupMinLuck = math.max(parsed, 0)
+                end
+            end
         })
 
         S.BackpackLabel = PickupBox:Paragraph({
@@ -5829,14 +5907,14 @@ do
     end
 
     -- Deteksi mode mining crystal (setelah pickup)
-    -- Crystal yang sedang di-mine punya attribute MinedHP
     local miningCheckClock = 0
     local isMiningCrystal = false
-    local MINING_CHECK_GAP = 0.15
+    local MINING_CHECK_GAP = 0.2
     local MINING_RANGE = 25
-    local DIG_RANGE = 18
-    local DIG_BURST = 5
-    local DIG_SINK = 1.2
+
+    -- Match boulder / auto-mine dig style
+    local SWING_BURST = 6
+    local DIG_RANGE = 20
 
     local miningParams = OverlapParams.new()
     miningParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -5873,7 +5951,6 @@ do
                 if hp == nil and part.Parent then
                     hp = getAttr(part.Parent, "MinedHP")
                 end
-
                 if hp ~= nil then
                     local num = tonumber(hp)
                     if num == nil or num > 0 then
@@ -5888,80 +5965,43 @@ do
         return false
     end
 
-    -- Raycast ke arah kamera, prioritaskan terrain / boulder (bukan crystal)
-    local function getDigAim(camera, character, root)
+    local function getDigAim(camera, character)
         local origin = camera.CFrame.Position
         local look = camera.CFrame.LookVector
 
         local exclude = { character }
-        if root then
-            exclude[#exclude + 1] = root
-        end
         aimParams.FilterDescendantsInstances = exclude
 
-        -- Ray jauh dulu
-        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 12), aimParams)
+        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 15), aimParams)
 
-        -- Kalau kena crystal, coba skip dan ray lagi sedikit lebih jauh
+        -- Skip crystals so dig goes to terrain/boulder behind them
         if hit and hit.Instance then
             local inst = hit.Instance
-            local isCry = isCrystal(inst)
+            local cry = isCrystal(inst)
                 or (inst.Parent and isCrystal(inst.Parent))
                 or getAttr(inst, "Value") ~= nil
                 or getAttr(inst, "CrystalName") ~= nil
                 or (inst.Parent and (getAttr(inst.Parent, "Value") ~= nil or getAttr(inst.Parent, "CrystalName") ~= nil))
 
-            if isCry then
+            if cry then
                 exclude[#exclude + 1] = inst
                 if inst.Parent then
                     exclude[#exclude + 1] = inst.Parent
                 end
                 aimParams.FilterDescendantsInstances = exclude
-                hit = Workspace:Raycast(origin, look * (DIG_RANGE + 12), aimParams)
+                hit = Workspace:Raycast(origin, look * (DIG_RANGE + 15), aimParams)
             end
         end
 
         if hit and hit.Position then
-            -- Clamp jarak biar tidak dig terlalu jauh
             local dist = (hit.Position - origin).Magnitude
-            if dist > DIG_RANGE + 6 then
-                return origin + look * DIG_RANGE
+            if dist <= DIG_RANGE + 8 then
+                return hit.Position, hit.Instance
             end
-            return hit.Position
         end
 
-        -- Fallback: titik di depan kamera
-        return origin + look * DIG_RANGE
-    end
-
-    local function playDigAnimation(pick, character)
-        -- Trigger animasi swing pickaxe seperti dig normal
-        pcall(function()
-            if pick and pick.Parent == character then
-                pick:Activate()
-            end
-        end)
-
-        -- Backup: VirtualUser click (beberapa game pakai ini untuk swing)
-        pcall(function()
-            local vu = game:GetService("VirtualUser")
-            vu:CaptureController()
-            vu:ClickButton1(Vector2.new())
-        end)
-    end
-
-    local function faceDigDirection(root, aim)
-        if not root or not aim then
-            return
-        end
-        pcall(function()
-            local pos = root.Position
-            local flat = Vector3.new(aim.X - pos.X, 0, aim.Z - pos.Z)
-            if flat.Magnitude < 0.5 then
-                return
-            end
-            root.CFrame = CFrame.new(pos, pos + flat.Unit)
-        end)
+        -- Fallback close point in look direction
+        return origin + look * math.min(DIG_RANGE, 12), nil
     end
 
     local function fastDigStep(deltaTime)
@@ -5986,42 +6026,43 @@ do
         end
 
         local character = LocalPlayer.Character
+        if not character then
+            return
+        end
 
-        -- Pause Fast Dig saat sedang mining / pickup crystal
         if refreshMiningState(root) then
             return
         end
 
-        -- Same speed formula used by Money Farm / Auto Mine
+        -- Same timing as Auto Mine / Boulder farm (Farm.swingGap * 0.4)
         local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
-        local swingNeed = math.max(0.02, baseGap * 0.4)
+        local swingNeed = math.max(0.015, baseGap * 0.35)
 
         swingClock = swingClock + deltaTime
         if swingClock < swingNeed then
             return
         end
 
-        local swings = math.min(math.floor(swingClock / swingNeed), 4)
-        swingClock = swingClock - swings * swingNeed
-
-        -- Aim akurat ke arah pandang (raycast terrain/boulder)
-        local aim = getDigAim(camera, character, root)
-
-        -- Hadapkan karakter ke arah dig (biar animasi terlihat natural)
-        faceDigDirection(root, aim)
-
-        local name = pick.Name
-        for _ = 1, swings do
-            -- Mainkan animasi dig
-            playDigAnimation(pick, character)
-
-            pcall(function()
-                -- Burst ke bawah seperti Auto Mine
-                for step = 0, DIG_BURST - 1 do
-                    event:FireServer(name, aim - Vector3.new(0, step * DIG_SINK, 0))
-                end
-            end)
+        -- Cap backlog so delay does not stack
+        if swingClock > swingNeed * 3 then
+            swingClock = swingNeed * 3
         end
+        swingClock = swingClock - swingNeed
+
+        local aim = getDigAim(camera, character)
+        local name = pick.Name
+
+        -- Boulder-style dig: only DigRequest burst (server plays dig animation)
+        -- Alternate core / slightly offset like Farm.swing
+        pcall(function()
+            for index = 1, SWING_BURST do
+                if index % 2 == 0 then
+                    event:FireServer(name, aim)
+                else
+                    event:FireServer(name, aim - Vector3.new(0, 1.2, 0))
+                end
+            end
+        end)
     end
 
     local function setFastDig(value)
@@ -6036,12 +6077,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Digs at Auto Mine speed with swing animation. Aims where you look (raycast). Pauses while mining crystals.",
+            Desc = "Uses the same DigRequest burst as Auto Boulder/Mine. Aims via camera raycast. Pauses while mining crystals.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Fast dig + animation (pauses during crystal mining)",
+            Desc = "Fast dig (boulder method, less delay)",
             Value = false,
             Callback = setFastDig,
         })
