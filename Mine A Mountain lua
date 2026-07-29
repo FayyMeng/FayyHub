@@ -6719,17 +6719,15 @@ do
                         continue
                     end
 
-                    -- Dekat objek (sedikit di atas biar float)
-                    local hover = pos + Vector3.new(0, 3, 0)
-                    pcall(teleportTo, hover)
+                    -- Teleport tepat di posisi rune
+                    pcall(teleportTo, pos)
                     task.wait(0.25)
 
-                    -- Pastikan tetap dekat lalu fire pickup
                     local root = getRoot()
                     if root then
                         local dist = (root.Position - pos).Magnitude
                         if dist > 12 then
-                            pcall(teleportTo, hover)
+                            pcall(teleportTo, pos)
                             task.wait(0.15)
                         end
                     end
@@ -6803,16 +6801,52 @@ do
 
         PlotBox:Button({
             Title = "TP To Own Plot",
-            Desc = "Teleport to your plot region",
+            Desc = "Teleport to Sign on your plot",
             Callback = function()
                 local plot = getOwnedPlotModel()
-                local region = plot and plot:FindFirstChild("Region")
-                if region and region:IsA("BasePart") then
-                    teleportTo(region.Position + Vector3.new(0, 5, 0))
-                else
+                if not plot then
                     WindUI:Notify({
                         Title = "Plot",
                         Content = "Own plot not found",
+                        Duration = 2,
+                        Icon = "alert-circle",
+                    })
+                    return
+                end
+
+                local sign = plot:FindFirstChild("Sign", true)
+                local dest = nil
+                if sign then
+                    if sign:IsA("BasePart") then
+                        dest = sign.Position
+                    elseif sign:IsA("Model") then
+                        local ok, pivot = pcall(function()
+                            return sign:GetPivot().Position
+                        end)
+                        if ok and pivot then
+                            dest = pivot
+                        else
+                            local part = sign.PrimaryPart or sign:FindFirstChildWhichIsA("BasePart", true)
+                            if part then
+                                dest = part.Position
+                            end
+                        end
+                    end
+                end
+
+                if not dest then
+                    local region = plot:FindFirstChild("Region")
+                    if region and region:IsA("BasePart") then
+                        dest = region.Position
+                    end
+                end
+
+                if dest then
+                    teleportTo(dest)
+                else
+                    WindUI:Notify({
+                        Title = "Plot",
+                        Content = "Sign not found on plot",
                         Duration = 2,
                         Icon = "alert-circle",
                     })
