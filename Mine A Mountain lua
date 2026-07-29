@@ -1555,6 +1555,9 @@ local function teleportTo(target)
     end
 
     finishTeleport()
+    if Move and Move.glideStop then
+        pcall(Move.glideStop)
+    end
 
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if humanoid then
@@ -1572,8 +1575,42 @@ local function teleportTo(target)
         ignore[#ignore + 1] = target
     end
 
-    local goalFrame = CFrame.new(findClearGoal(position + TP.offset, ignore))
+    local goalPos = findClearGoal(position + TP.offset, ignore)
+    local goalFrame = CFrame.new(goalPos, goalPos + Vector3.new(0, 0, -1))
 
+    -- Use the same glide/tween system as Auto Boulders (AlignPosition)
+    if Move and Move.glide then
+        local ok = Move.glide(goalFrame, position)
+        if ok then
+            S.tpState = {
+                goal = goalFrame,
+                holdUntil = os.clock() + 2.5,
+                usingGlide = true,
+            }
+            task.spawn(function()
+                local deadline = os.clock() + 4
+                while os.clock() < deadline do
+                    local r = getRoot()
+                    if r and (r.Position - goalPos).Magnitude <= 6 then
+                        break
+                    end
+                    -- keep guiding glide
+                    if Move.glide then
+                        pcall(Move.glide, goalFrame, position)
+                    end
+                    task.wait(0.05)
+                end
+                if Move.glideStop then
+                    pcall(Move.glideStop)
+                end
+                applyPivot(goalFrame)
+                finishTeleport()
+            end)
+            return true
+        end
+    end
+
+    -- Fallback: direct pivot
     if not applyPivot(goalFrame) then
         return false
     end
@@ -1706,7 +1743,6 @@ local function pickupCandidates(free, origin)
     table.clear(found)
     table.clear(seen)
     local now = os.clock()
-    local atBase = isAtBase()
 
     local function consider(child)
         if not child or seen[child] then
@@ -1725,39 +1761,30 @@ local function pickupCandidates(free, origin)
 
         local value = crystalValue(child)
 
-        -- ESP min-value filter (existing)
+        -- ESP min-value filter when only plain auto pickup is on
         if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
             if not meetsFilter(child, value) then
                 return
             end
         end
 
-        -- Auto Pickup by Value (disabled at base)
-        if S.pickupValueActive and not atBase then
+        -- Auto Pickup by Value
+        if S.pickupValueActive then
             if value < (S.pickupMinValue or 0) then
                 return
             end
-        elseif S.pickupValueActive and atBase and not S.autoPickupActive then
-            return
         end
 
-        -- Auto Pickup by Luck (disabled at base)
-        if S.pickupLuckActive and not atBase then
+        -- Auto Pickup by Luck
+        if S.pickupLuckActive then
             local ok, luck = pcall(crystalLuck, child)
             local luckPct = (ok and luck or 0) * 100
             if luckPct < (S.pickupMinLuck or 0) then
                 return
             end
-        elseif S.pickupLuckActive and atBase and not S.autoPickupActive then
-            return
         end
 
         if not S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
-            return
-        end
-
-        -- At base: only plain Auto Pickup may run
-        if atBase and not S.autoPickupActive then
             return
         end
 
@@ -2108,12 +2135,21 @@ end
 local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.tpState then
         local ok, err = pcall(function()
-            if not applyPivot(S.tpState.goal) then
-                finishTeleport()
-                return
+            -- Glide-based TP is driven by Move.glide; only hold with pivot as fallback
+            if not S.tpState.usingGlide then
+                if not applyPivot(S.tpState.goal) then
+                    finishTeleport()
+                    return
+                end
             end
 
             if os.clock() >= S.tpState.holdUntil then
+                if S.tpState.usingGlide and Move and Move.glideStop then
+                    pcall(Move.glideStop)
+                end
+                if S.tpState.goal then
+                    applyPivot(S.tpState.goal)
+                end
                 finishTeleport()
             end
         end)
@@ -2927,7 +2963,7 @@ do
                 end
             end
 
-            if autoGrab and not isAtBase() then
+            if autoGrab then
                 grabClock += deltaTime
                 if grabClock >= GRAB_STEP then
                     grabClock = 0
@@ -3451,20 +3487,6 @@ do
             end
         })
 
-        CrystalBox:Slider({
-            Title = "Crystal Size",
-            Desc = "Adjust crystal ESP size",
-            Step = 1,
-            Value = {
-                Min = 40,
-                Max = 250,
-                Default = 40,
-            },
-            Callback = function(value)
-                S.espScale = value / 100
-                applyEspScale()
-            end
-        })
 
         CrystalBox:Paragraph({
             Title = "Min Value",
@@ -3562,20 +3584,6 @@ do
             end
         })
 
-        PlayerBox:Slider({
-            Title = "Player Size",
-            Desc = "Adjust player ESP size",
-            Step = 1,
-            Value = {
-                Min = 40,
-                Max = 250,
-                Default = 40,
-            },
-            Callback = function(value)
-                S.playerScale = value / 100
-                applyPlayerScale()
-            end
-        })
     end
 
     install()
@@ -3592,20 +3600,6 @@ do
             Callback = Mountain.setBoulderEsp
         })
 
-        BoulderBox:Slider({
-            Title = "Boulder Size",
-            Desc = "Adjust boulder ESP size",
-            Step = 1,
-            Value = {
-                Min = 40,
-                Max = 250,
-                Default = 40,
-            },
-            Callback = function(value)
-                S.boulderScale = value / 100
-                Mountain.applyScale()
-            end
-        })
 
         for _, text in ipairs(Mountain.boulderList()) do
             BoulderBox:Paragraph({
@@ -5997,50 +5991,23 @@ do
         return false
     end
 
-    local BOULDER_NAME_KEYS = {
-        "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite", "Boulder",
-    }
-
-    local function isBoulderInstance(inst)
-        local node = inst
-        for _ = 1, 8 do
-            if not node then
-                break
-            end
-            local name = node.Name or ""
-            for _, key in ipairs(BOULDER_NAME_KEYS) do
-                if name:find(key, 1, true) then
-                    return true
-                end
-            end
-            if node.Parent and node.Parent.Name == "Boulders" then
-                return true
-            end
-            if node.Parent and node.Parent.Name == "BoulderTest" then
-                return true
-            end
-            node = node.Parent
-        end
-        return false
-    end
-
-    -- Raycast: only return aim if looking at a boulder (not terrain around it)
-    local function getBoulderDigAim(camera, character)
+    -- Dig only along camera look direction (terrain or boulder)
+    local function getLookDigAim(camera, character)
         local origin = camera.CFrame.Position
         local look = camera.CFrame.LookVector
 
         aimParams.FilterDescendantsInstances = { character }
-        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 20), aimParams)
+        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 25), aimParams)
 
-        if not hit or not hit.Instance then
-            return nil
+        if hit and hit.Position then
+            local dist = (hit.Position - origin).Magnitude
+            if dist <= DIG_RANGE + 10 then
+                return hit.Position
+            end
+            return origin + look * DIG_RANGE
         end
 
-        if not isBoulderInstance(hit.Instance) then
-            return nil
-        end
-
-        return hit.Position, hit.Instance
+        return origin + look * DIG_RANGE
     end
 
     local function fastDigStep(deltaTime)
@@ -6073,13 +6040,8 @@ do
             return
         end
 
-        -- Safety: disable Fast Dig while at base
-        if isAtBase() then
-            return
-        end
-
-        -- Only dig when aiming at a boulder (not surrounding terrain)
-        local aim, boulderPart = getBoulderDigAim(camera, character)
+        -- Dig only at the look-direction hit point
+        local aim = getLookDigAim(camera, character)
         if not aim then
             return
         end
@@ -6099,16 +6061,13 @@ do
         swingClock = swingClock - swingNeed
 
         local name = pick.Name
-        local core = aim
 
-        -- Boulder-style dig burst focused on boulder hit point only
+        -- DigRequest only at look aim (and slight depth along same ray)
+        local look = camera.CFrame.LookVector
         pcall(function()
             for index = 1, SWING_BURST do
-                if index % 2 == 0 then
-                    event:FireServer(name, core)
-                else
-                    event:FireServer(name, core - Vector3.new(0, 1.0, 0))
-                end
+                local depth = (index - 1) * 0.8
+                event:FireServer(name, aim + look * depth)
             end
         end)
     end
@@ -6125,12 +6084,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Only digs when aiming at boulders (not terrain). Off at base and while mining crystals.",
+            Desc = "Digs terrain/boulders only along camera look direction. Pauses while mining crystals.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Boulder-only fast dig (off at base)",
+            Desc = "Look-direction dig (Auto Mine speed)",
             Value = false,
             Callback = setFastDig,
         })
