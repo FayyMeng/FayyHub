@@ -234,6 +234,7 @@ local Window = WindUI:CreateWindow({
 local Tabs = {
     esp = Window:Tab({ Title = "ESP", Icon = "eye" }),
     boulders = Window:Tab({ Title = "Boulders", Icon = "mountain" }),
+    dig = Window:Tab({ Title = "Dig Settings", Icon = "settings-2" }),
     teleports = Window:Tab({ Title = "Teleports", Icon = "crosshair" }),
     farming = Window:Tab({ Title = "Farming", Icon = "pickaxe" }),
     movement = Window:Tab({ Title = "Movement", Icon = "zap" }),
@@ -283,6 +284,8 @@ local S = {
     instantPatched      = {},
     instantAccumulator  = math.huge,
     fastDigActive       = false,
+    digSpeedMult        = 0.4,
+    digMode             = "Normal",
     pickupValueActive   = false,
     pickupLuckActive    = false,
     pickupMinValue      = 1000000000,
@@ -2525,7 +2528,7 @@ local function mountainSpan()
     return 150
 end
 
--- True when player is at base / not on the mountain
+-- True when player is at base / not on the mountain (hysteresis to avoid flicker)
 local function isAtBase()
     local root = getRoot()
     if not root then
@@ -2534,13 +2537,23 @@ local function isAtBase()
 
     local spot = mountainSpot()
     if not spot then
-        -- No mountain data: treat low Y / far from high terrain as base
         return root.Position.Y < 80
     end
 
     local flat = Vector2.new(root.Position.X - spot.X, root.Position.Z - spot.Z)
-    local span = mountainSpan() + 40
-    return flat.Magnitude > span
+    local dist = flat.Magnitude
+    local span = mountainSpan()
+
+    -- Hysteresis: harder to enter base, easier to leave (stay "on mountain" near edge)
+    if S.wasAtBase then
+        -- Need to get closer to mountain to leave base state
+        S.wasAtBase = dist > (span + 20)
+    else
+        -- Need to go farther out to count as base
+        S.wasAtBase = dist > (span + 55)
+    end
+
+    return S.wasAtBase == true
 end
 
 local sellClock = 0
@@ -5147,6 +5160,14 @@ do
             end
         end
 
+        local PICKAXE_REQ = {
+            Mossite = "Titanium Spike",
+            Voltite = "Celestial Apex",
+            Gildrite = "Eclipse Fang",
+            Rimeveil = "Voidreign",
+            Nocturnite = "The Terminus",
+        }
+
         local function setTargets(value)
             table.clear(targets)
 
@@ -5160,6 +5181,19 @@ do
                 end
             elseif type(value) == "string" then
                 targets[value] = true
+            end
+
+            -- Notify required pickaxe for each selected boulder
+            for kind in pairs(targets) do
+                local px = PICKAXE_REQ[kind]
+                if px then
+                    WindUI:Notify({
+                        Title = kind,
+                        Content = "Required pickaxe: " .. px,
+                        Duration = 3,
+                        Icon = "pickaxe",
+                    })
+                end
             end
         end
 
@@ -6113,61 +6147,124 @@ do
 
         -- Safety: Fast Dig disabled while at base
         if isAtBase() then
+            -- Reset clock so leaving base resumes at full dig speed (no lag backlog)
+            swingClock = 0
             return
         end
 
-        -- Dig only at the look-direction hit point
+        -- Dig at the look-direction hit point
         local aim = getLookDigAim(camera, character)
         if not aim then
             return
         end
 
-        -- Same timing as Auto Mine / Boulder farm (Farm.swingGap * 0.4)
+        -- Dig speed from Dig Settings (default 0.4 = same as Auto Mine)
+        local mult = tonumber(S.digSpeedMult) or 0.4
+        mult = math.clamp(mult, 0.05, 1)
         local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
-        local swingNeed = math.max(0.02, baseGap * 0.4)
+        local swingNeed = math.max(0.02, baseGap * mult)
 
         swingClock = swingClock + deltaTime
         if swingClock < swingNeed then
             return
         end
 
-        if swingClock > swingNeed * 3 then
-            swingClock = swingNeed * 3
-        end
+        -- Do not stack delay after leaving base / lag spikes
         swingClock = swingClock - swingNeed
+        if swingClock > swingNeed then
+            swingClock = 0
+        end
 
         local name = pick.Name
+        local cf = camera.CFrame
+        local look = cf.LookVector
+        local right = cf.RightVector
+        local up = cf.UpVector
+        local mode = S.digMode or "Normal"
+        local reach = 5
 
-        -- DigRequest only at look aim (and slight depth along same ray)
-        local look = camera.CFrame.LookVector
-        pcall(function()
+        local points = { aim }
+
+        if mode == "Advance" then
+            -- One dig covers front, right, back, up, left around the hit point
+            points = {
+                aim,                              -- center / front hit
+                aim + look * reach,               -- depan
+                aim + right * reach,              -- kanan
+                aim - look * reach,               -- belakang
+                aim + up * reach,                 -- atas
+                aim - right * reach,              -- kiri
+                aim - up * (reach * 0.5),         -- sedikit ke bawah
+            }
+        else
+            -- Normal: only along look direction (depth)
             for index = 1, SWING_BURST do
-                local depth = (index - 1) * 0.8
-                event:FireServer(name, aim + look * depth)
+                points[#points + 1] = aim + look * ((index - 1) * 0.8)
+            end
+        end
+
+        pcall(function()
+            for _, point in ipairs(points) do
+                event:FireServer(name, point)
             end
         end)
     end
 
     local function setFastDig(value)
         S.fastDigActive = value == true
-        if not S.fastDigActive then
-            swingClock = 0
-        end
+        swingClock = 0
     end
 
     local function install()
+        -- Fast Dig toggle stays on Farming
         local FastDigBox = Tabs.farming:Section({ Title = "Fast Dig", Icon = "zap", Opened = true })
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Digs along look direction. Off at base and while mining crystals.",
+            Desc = "Uses Dig Settings for speed & direction. Off at base and while mining crystals.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Look-direction dig (off at base)",
+            Desc = "Enable fast dig (off at base)",
             Value = false,
             Callback = setFastDig,
+        })
+
+        -- Dig Settings tab
+        local DigBox = Tabs.dig:Section({ Title = "Dig Settings", Icon = "settings-2", Opened = true })
+
+        DigBox:Paragraph({
+            Title = "Dig Control",
+            Desc = "Speed multiplier 0.4 = Auto Mine speed. Advance digs 5 directions around the look hit.",
+        })
+
+        DigBox:Slider({
+            Title = "Dig Speed",
+            Desc = "Lower = faster dig (0.1 fastest, 1.0 slowest). Default 0.4",
+            Step = 0.05,
+            Value = {
+                Min = 0.1,
+                Max = 1,
+                Default = 0.4,
+            },
+            Callback = function(value)
+                S.digSpeedMult = tonumber(value) or 0.4
+                swingClock = 0
+            end
+        })
+
+        DigBox:Dropdown({
+            Title = "Dig Mode",
+            Desc = "Normal = look direction only | Advance = front/right/back/up/left",
+            Values = { "Normal", "Advance" },
+            Value = "Normal",
+            Callback = function(option)
+                if type(option) == "table" then
+                    option = option[1] or option.Value or "Normal"
+                end
+                S.digMode = tostring(option or "Normal")
+            end
         })
     end
 
