@@ -6273,12 +6273,41 @@ do
         end
 
         local name = pick.Name
-        local look = camera.CFrame.LookVector
+        local cf = camera.CFrame
+        local look = cf.LookVector
+        local right = cf.RightVector
+        local up = Vector3.new(0, 1, 0)
 
-        -- Normal dig only along look direction
+        -- Flat forward (ignore camera pitch for side offsets)
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude < 0.05 then
+            flat = Vector3.new(right.X, 0, right.Z)
+        end
+        flat = flat.Unit
+        local side = Vector3.new(-flat.Z, 0, flat.X) -- left/right on ground plane
+
+        -- digRadius ~4 from ToolConfig Pickaxe; cover front/back/left/right/up, NOT down
+        local r = 4
+        local points = {
+            aim,                          -- center hit
+            aim + flat * r,               -- depan
+            aim - flat * r,               -- belakang
+            aim + side * r,               -- kanan
+            aim - side * r,               -- kiri
+            aim + up * r,                 -- atas
+            aim + (flat + side).Unit * r,
+            aim + (flat - side).Unit * r,
+            aim + (-flat + side).Unit * r,
+            aim + (-flat - side).Unit * r,
+            aim + flat * (r * 0.5) + up * (r * 0.5),
+            aim - flat * (r * 0.5) + up * (r * 0.5),
+            aim + side * (r * 0.5) + up * (r * 0.5),
+            aim - side * (r * 0.5) + up * (r * 0.5),
+        }
+
         pcall(function()
-            for index = 1, SWING_BURST do
-                event:FireServer(name, aim + look * ((index - 1) * 0.8))
+            for _, point in ipairs(points) do
+                event:FireServer(name, point)
             end
         end)
     end
@@ -6293,7 +6322,7 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Uses Dig Settings for speed. Off at base and while mining crystals.",
+            Desc = "Area dig (L/R/F/B/Up). Off at base and while mining crystals.",
         })
 
         FastDigBox:Toggle({
@@ -6307,7 +6336,7 @@ do
 
         DigBox:Paragraph({
             Title = "Dig Control",
-            Desc = "Speed multiplier 0.4 = same as Auto Mine. Digs only along look direction.",
+            Desc = "Speed multiplier 0.4 = Auto Mine. Each dig hits front/back/left/right/up (not down).",
         })
 
         DigBox:Slider({
@@ -6338,6 +6367,47 @@ end
 
 do
     local function install()
+        local ShopBox = Tabs.settings:Section({ Title = "Shops", Icon = "shopping-bag", Opened = true })
+
+        ShopBox:Button({
+            Title = "Open Bomb Shop",
+            Desc = "Open BomberBarry bomb shop",
+            Callback = function()
+                local ok = pcall(function()
+                    local remote = ReplicatedStorage:FindFirstChild("Remotes")
+                    remote = remote and remote:FindFirstChild("BombOpen")
+                    local barry = Workspace:FindFirstChild("Things")
+                    barry = barry and barry:FindFirstChild("BomberBarry")
+                    if not remote or not barry then
+                        error("BombOpen or BomberBarry missing")
+                    end
+                    if typeof(firesignal) == "function" then
+                        firesignal(remote.OnClientEvent, barry)
+                    else
+                        -- fallback: try getconnections / fire OnClientEvent handlers
+                        local handlers = getconnections and getconnections(remote.OnClientEvent)
+                        if handlers then
+                            for _, conn in ipairs(handlers) do
+                                pcall(function()
+                                    if conn.Fire then
+                                        conn:Fire(barry)
+                                    elseif conn.Function then
+                                        conn.Function(barry)
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end)
+                WindUI:Notify({
+                    Title = "Mine a Mountain",
+                    Content = ok and "Bomb shop opened" or "Failed to open bomb shop",
+                    Duration = 2,
+                    Icon = ok and "check" or "alert-circle",
+                })
+            end
+        })
+
         local SettingsBox = Tabs.settings:Section({ Title = "Settings", Icon = "sliders-horizontal", Opened = true })
 
         SettingsBox:Button({
