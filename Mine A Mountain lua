@@ -1959,6 +1959,10 @@ local function instantGrab()
         return
     end
 
+    if backpackFree() <= 0 then
+        return
+    end
+
     local root = getRoot()
     if not root then
         return
@@ -2008,11 +2012,14 @@ local function pickupStep()
 
     local free = backpackFree()
     if free <= 0 then
-        if now - S.lastBagWarn >= 8 then
+        -- Bag full: stop all pickup attempts (no stream / no grab spam)
+        S.lastPickup = now
+        table.clear(S.candidates)
+        if now - S.lastBagWarn >= 12 then
             S.lastBagWarn = now
             WindUI:Notify({
                 Title = "Mine a Mountain",
-                Content = "Backpack full",
+                Content = "Backpack full - pickup paused",
                 Duration = 2,
                 Icon = "alert-circle",
             })
@@ -2028,7 +2035,10 @@ local function pickupStep()
 
     S.candidates = pickupCandidates(free, root.Position)
     if #S.candidates == 0 then
-        requestStream(root.Position)
+        -- Only stream if bag still has room (avoid spam when full/near-full)
+        if free > 0.5 then
+            requestStream(root.Position)
+        end
         return
     end
 
@@ -2040,7 +2050,8 @@ local function pickupStep()
             break
         end
 
-        if entry.weight <= budget then
+        -- Skip crystals that cannot fit
+        if entry.weight <= budget and budget > 0 then
             claimed[entry.inst] = now
 
             if grabCrystal(entry.inst, entry.prompt) then
@@ -2052,9 +2063,60 @@ local function pickupStep()
 
     if grabs > 0 then
         S.lastPickup = now
+    else
+        -- Nothing fit - back off briefly to avoid spam
+        S.lastPickup = now
     end
 end
 
+
+local function tryFilteredCrystalPickup(origin, free)
+    if free == nil then
+        free = backpackFree()
+    end
+    if free <= 0 then
+        return false
+    end
+
+    -- Only when value/luck pickup modes are enabled
+    if not S.pickupValueActive and not S.pickupLuckActive then
+        return false
+    end
+
+    local list = pickupCandidates(free, origin)
+    if not list or #list == 0 then
+        return false
+    end
+
+    local budget = free
+    local grabs = 0
+    local now = os.clock()
+
+    for _, entry in ipairs(list) do
+        if grabs >= PICK.burst then
+            break
+        end
+        if entry.weight <= budget and budget > 0 then
+            -- Must match at least one active filter (candidates already filtered)
+            local okValue = not S.pickupValueActive or entry.value >= (S.pickupMinValue or 0)
+            local okLuck = true
+            if S.pickupLuckActive then
+                local luckOk, luck = pcall(crystalLuck, entry.inst)
+                local luckPct = (luckOk and luck or 0) * 100
+                okLuck = luckPct >= (S.pickupMinLuck or 0)
+            end
+            if okValue and okLuck then
+                claimed[entry.inst] = now
+                if grabCrystal(entry.inst, entry.prompt) then
+                    budget -= entry.weight
+                    grabs += 1
+                end
+            end
+        end
+    end
+
+    return grabs > 0
+end
 
 local function updateBackpackLabel()
     if not S.BackpackLabel then
@@ -4866,6 +4928,15 @@ do
 
             local now = os.clock()
 
+            -- Priority: pickup nearby crystals matching Value/Luck filters before boulder work
+            if S.pickupValueActive or S.pickupLuckActive then
+                local free = backpackFree()
+                if free > 0 and tryFilteredCrystalPickup(root.Position, free) then
+                    statusText = "Picking filtered crystals"
+                    return
+                end
+            end
+
             if phase == "scan" then
                 if not scanned then
                     if scanIndex == 0 then
@@ -6040,6 +6111,11 @@ do
             return
         end
 
+        -- Safety: Fast Dig disabled while at base
+        if isAtBase() then
+            return
+        end
+
         -- Dig only at the look-direction hit point
         local aim = getLookDigAim(camera, character)
         if not aim then
@@ -6084,12 +6160,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Digs terrain/boulders only along camera look direction. Pauses while mining crystals.",
+            Desc = "Digs along look direction. Off at base and while mining crystals.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Look-direction dig (Auto Mine speed)",
+            Desc = "Look-direction dig (off at base)",
             Value = false,
             Callback = setFastDig,
         })
