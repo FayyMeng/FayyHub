@@ -5834,6 +5834,9 @@ do
     local isMiningCrystal = false
     local MINING_CHECK_GAP = 0.15
     local MINING_RANGE = 25
+    local DIG_RANGE = 18
+    local DIG_BURST = 5
+    local DIG_SINK = 1.2
 
     local miningParams = OverlapParams.new()
     miningParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -5841,6 +5844,10 @@ do
         miningParams.MaxParts = 80
         miningParams.RespectCanCollide = false
     end)
+
+    local aimParams = RaycastParams.new()
+    aimParams.FilterType = Enum.RaycastFilterType.Exclude
+    aimParams.IgnoreWater = true
 
     local function refreshMiningState(root)
         local now = os.clock()
@@ -5867,7 +5874,6 @@ do
                     hp = getAttr(part.Parent, "MinedHP")
                 end
 
-                -- Ada MinedHP = crystal sedang dalam mode mining
                 if hp ~= nil then
                     local num = tonumber(hp)
                     if num == nil or num > 0 then
@@ -5880,6 +5886,82 @@ do
 
         isMiningCrystal = false
         return false
+    end
+
+    -- Raycast ke arah kamera, prioritaskan terrain / boulder (bukan crystal)
+    local function getDigAim(camera, character, root)
+        local origin = camera.CFrame.Position
+        local look = camera.CFrame.LookVector
+
+        local exclude = { character }
+        if root then
+            exclude[#exclude + 1] = root
+        end
+        aimParams.FilterDescendantsInstances = exclude
+
+        -- Ray jauh dulu
+        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 12), aimParams)
+
+        -- Kalau kena crystal, coba skip dan ray lagi sedikit lebih jauh
+        if hit and hit.Instance then
+            local inst = hit.Instance
+            local isCry = isCrystal(inst)
+                or (inst.Parent and isCrystal(inst.Parent))
+                or getAttr(inst, "Value") ~= nil
+                or getAttr(inst, "CrystalName") ~= nil
+                or (inst.Parent and (getAttr(inst.Parent, "Value") ~= nil or getAttr(inst.Parent, "CrystalName") ~= nil))
+
+            if isCry then
+                exclude[#exclude + 1] = inst
+                if inst.Parent then
+                    exclude[#exclude + 1] = inst.Parent
+                end
+                aimParams.FilterDescendantsInstances = exclude
+                hit = Workspace:Raycast(origin, look * (DIG_RANGE + 12), aimParams)
+            end
+        end
+
+        if hit and hit.Position then
+            -- Clamp jarak biar tidak dig terlalu jauh
+            local dist = (hit.Position - origin).Magnitude
+            if dist > DIG_RANGE + 6 then
+                return origin + look * DIG_RANGE
+            end
+            return hit.Position
+        end
+
+        -- Fallback: titik di depan kamera
+        return origin + look * DIG_RANGE
+    end
+
+    local function playDigAnimation(pick, character)
+        -- Trigger animasi swing pickaxe seperti dig normal
+        pcall(function()
+            if pick and pick.Parent == character then
+                pick:Activate()
+            end
+        end)
+
+        -- Backup: VirtualUser click (beberapa game pakai ini untuk swing)
+        pcall(function()
+            local vu = game:GetService("VirtualUser")
+            vu:CaptureController()
+            vu:ClickButton1(Vector2.new())
+        end)
+    end
+
+    local function faceDigDirection(root, aim)
+        if not root or not aim then
+            return
+        end
+        pcall(function()
+            local pos = root.Position
+            local flat = Vector3.new(aim.X - pos.X, 0, aim.Z - pos.Z)
+            if flat.Magnitude < 0.5 then
+                return
+            end
+            root.CFrame = CFrame.new(pos, pos + flat.Unit)
+        end)
     end
 
     local function fastDigStep(deltaTime)
@@ -5903,6 +5985,8 @@ do
             return
         end
 
+        local character = LocalPlayer.Character
+
         -- Pause Fast Dig saat sedang mining / pickup crystal
         if refreshMiningState(root) then
             return
@@ -5917,19 +6001,25 @@ do
             return
         end
 
-        local swings = math.min(math.floor(swingClock / swingNeed), 6)
+        local swings = math.min(math.floor(swingClock / swingNeed), 4)
         swingClock = swingClock - swings * swingNeed
 
-        local origin = camera.CFrame.Position
-        local direction = camera.CFrame.LookVector
-        local aim = origin + direction * 15
+        -- Aim akurat ke arah pandang (raycast terrain/boulder)
+        local aim = getDigAim(camera, character, root)
+
+        -- Hadapkan karakter ke arah dig (biar animasi terlihat natural)
+        faceDigDirection(root, aim)
 
         local name = pick.Name
         for _ = 1, swings do
+            -- Mainkan animasi dig
+            playDigAnimation(pick, character)
+
             pcall(function()
-                event:FireServer(name, aim)
-                event:FireServer(name, aim - Vector3.new(0, 1.2, 0))
-                event:FireServer(name, aim - Vector3.new(0, 2.4, 0))
+                -- Burst ke bawah seperti Auto Mine
+                for step = 0, DIG_BURST - 1 do
+                    event:FireServer(name, aim - Vector3.new(0, step * DIG_SINK, 0))
+                end
             end)
         end
     end
@@ -5946,12 +6036,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Digs at Auto Mine speed while holding a pickaxe. Auto pauses while mining/picking up crystals, resumes after.",
+            Desc = "Digs at Auto Mine speed with swing animation. Aims where you look (raycast). Pauses while mining crystals.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Enable fast dig (pauses during crystal mining mode)",
+            Desc = "Fast dig + animation (pauses during crystal mining)",
             Value = false,
             Callback = setFastDig,
         })
