@@ -1324,6 +1324,12 @@ local function destroyPlayerEntry(player)
         return
     end
 
+    if entry.highlight then
+        pcall(function()
+            entry.highlight:Destroy()
+        end)
+        entry.highlight = nil
+    end
     if entry.gui then
         entry.gui:Destroy()
     end
@@ -1348,6 +1354,18 @@ local function createPlayerEntry(player)
 
     nameLabel.Text = player.DisplayName
 
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "UniversePlayerOutline"
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillTransparency = 0.85
+    highlight.OutlineTransparency = 0
+    highlight.FillColor = COLORS.player
+    highlight.OutlineColor = COLORS.player
+    highlight.Parent = EspHolder
+    if player.Character then
+        highlight.Adornee = player.Character
+    end
+
     return {
         gui = billboard,
         name = nameLabel,
@@ -1355,6 +1373,7 @@ local function createPlayerEntry(player)
         constraints = { nameConstraint, distanceConstraint },
         nameText = player.DisplayName,
         distanceText = false,
+        highlight = highlight,
     }
 end
 
@@ -1393,6 +1412,11 @@ local function updatePlayerEsp()
                 if entry then
                     if entry.gui.Adornee ~= target then
                         entry.gui.Adornee = target
+                    end
+                    if entry.highlight then
+                        if entry.highlight.Adornee ~= character then
+                            entry.highlight.Adornee = character
+                        end
                     end
 
                     if entry.nameText ~= player.DisplayName then
@@ -5288,18 +5312,6 @@ do
                 targets[value] = true
             end
 
-            -- Notify required pickaxe for each selected boulder
-            for kind in pairs(targets) do
-                local px = PICKAXE_REQ[kind]
-                if px then
-                    WindUI:Notify({
-                        Title = kind,
-                        Content = "Required pickaxe: " .. px,
-                        Duration = 3,
-                        Icon = "pickaxe",
-                    })
-                end
-            end
         end
 
         local function setActive(value)
@@ -6322,12 +6334,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Area dig (L/R/F/B/Up). Off at base and while mining crystals.",
+            Desc = "Make u dig faster",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Enable fast dig (off at base)",
+            Desc = "Make u dig faster",
             Value = false,
             Callback = setFastDig,
         })
@@ -6367,6 +6379,191 @@ end
 
 do
     local function install()
+        local PlotBox = Tabs.farming:Section({ Title = "Plot / Runes", Icon = "map-pin", Opened = true })
+
+        local RUNE_LIST = {
+            "Luck Rune", "Haste Rune", "Storm Rune", "Weight Rune",
+            "Fortune Rune", "Detonation Rune", "Preservation Rune", "Warmth Rune",
+            "Excavator Rune", "Colossus Rune",
+        }
+
+        local function getOwnedPlotModel()
+            local things = Workspace:FindFirstChild("Things")
+            local plots = things and things:FindFirstChild("Plots")
+            local slots = plots and plots:FindFirstChild("Slots")
+            if not slots then
+                return nil
+            end
+            local byName = slots:FindFirstChild(LocalPlayer.Name)
+            if byName then
+                return byName
+            end
+            -- fallback: match by attribute / owner
+            for _, slot in ipairs(slots:GetChildren()) do
+                if slot:IsA("Model") then
+                    local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
+                    if owner == LocalPlayer.Name or owner == LocalPlayer.UserId then
+                        return slot
+                    end
+                end
+            end
+            return nil
+        end
+
+        local function collectRuneTools()
+            local list = {}
+            local function scan(container)
+                if not container then
+                    return
+                end
+                for _, child in ipairs(container:GetChildren()) do
+                    if child:IsA("Tool") and child.Name:find("Rune", 1, true) then
+                        list[#list + 1] = child
+                    end
+                end
+            end
+            scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+            scan(LocalPlayer.Character)
+            return list
+        end
+
+        local function placeRunesOnPlot()
+            local plot = getOwnedPlotModel()
+            if not plot then
+                WindUI:Notify({
+                    Title = "Plot",
+                    Content = "Own plot not found",
+                    Duration = 2,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            local region = plot:FindFirstChild("Region")
+            if not (region and region:IsA("BasePart")) then
+                WindUI:Notify({
+                    Title = "Plot",
+                    Content = "Plot Region missing",
+                    Duration = 2,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            local remote = findRemote("PlotPlaceRequest")
+            if not remote then
+                WindUI:Notify({
+                    Title = "Plot",
+                    Content = "PlotPlaceRequest missing",
+                    Duration = 2,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            local runes = collectRuneTools()
+            if #runes == 0 then
+                WindUI:Notify({
+                    Title = "Plot",
+                    Content = "No runes in inventory",
+                    Duration = 2,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            -- Grid positions across the plot region (world space)
+            local cf = region.CFrame
+            local size = region.Size
+            local halfX = size.X * 0.35
+            local halfZ = size.Z * 0.35
+            local topY = region.Position.Y + size.Y * 0.5 + 1
+
+            local slots = {}
+            local cols = math.max(2, math.ceil(math.sqrt(#runes)))
+            local rows = math.max(2, math.ceil(#runes / cols))
+            local idx = 0
+            for row = 0, rows - 1 do
+                for col = 0, cols - 1 do
+                    idx += 1
+                    if idx > #runes then
+                        break
+                    end
+                    local u = (cols == 1) and 0 or (col / (cols - 1) - 0.5) * 2
+                    local v = (rows == 1) and 0 or (row / (rows - 1) - 0.5) * 2
+                    local localPos = Vector3.new(u * halfX, 0, v * halfZ)
+                    local world = cf:PointToWorldSpace(localPos)
+                    slots[#slots + 1] = Vector3.new(world.X, topY, world.Z)
+                end
+            end
+
+            task.spawn(function()
+                local placed = 0
+                for i, tool in ipairs(runes) do
+                    if not tool.Parent then
+                        continue
+                    end
+                    local pos = slots[i] or slots[#slots]
+                    if not pos then
+                        break
+                    end
+                    -- Equip then place (server expects tool instance)
+                    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if humanoid and tool.Parent ~= LocalPlayer.Character then
+                        pcall(function()
+                            humanoid:EquipTool(tool)
+                        end)
+                        task.wait(0.12)
+                    end
+                    local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
+                    held = held or tool
+                    local ok = pcall(function()
+                        remote:FireServer(held.Name, pos, 0, held)
+                    end)
+                    if ok then
+                        placed += 1
+                    end
+                    task.wait(0.35)
+                end
+                WindUI:Notify({
+                    Title = "Plot",
+                    Content = string.format("Placed %d rune(s) on plot", placed),
+                    Duration = 3,
+                    Icon = "check",
+                })
+            end)
+        end
+
+        PlotBox:Paragraph({
+            Title = "Place Runes",
+            Desc = "Detects your plot (Things.Plots.Slots) and places held/backpack runes on it.",
+        })
+
+        PlotBox:Button({
+            Title = "Place All Runes On Plot",
+            Desc = "Auto place every rune tool onto your plot",
+            Callback = placeRunesOnPlot,
+        })
+
+        PlotBox:Button({
+            Title = "TP To Own Plot",
+            Desc = "Teleport to your plot region",
+            Callback = function()
+                local plot = getOwnedPlotModel()
+                local region = plot and plot:FindFirstChild("Region")
+                if region and region:IsA("BasePart") then
+                    teleportTo(region.Position + Vector3.new(0, 5, 0))
+                else
+                    WindUI:Notify({
+                        Title = "Plot",
+                        Content = "Own plot not found",
+                        Duration = 2,
+                        Icon = "alert-circle",
+                    })
+                end
+            end
+        })
+
         local ShopBox = Tabs.settings:Section({ Title = "Shops", Icon = "shopping-bag", Opened = true })
 
         ShopBox:Button({
