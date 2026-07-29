@@ -233,11 +233,8 @@ local Window = WindUI:CreateWindow({
 
 local Tabs = {
     esp = Window:Tab({ Title = "ESP", Icon = "eye" }),
-    boulders = Window:Tab({ Title = "Boulders", Icon = "mountain" }),
-    dig = Window:Tab({ Title = "Dig Settings", Icon = "settings-2" }),
-    teleports = Window:Tab({ Title = "Teleports", Icon = "crosshair" }),
-    farming = Window:Tab({ Title = "Farming", Icon = "pickaxe" }),
-    movement = Window:Tab({ Title = "Movement", Icon = "zap" }),
+    farm = Window:Tab({ Title = "Farm", Icon = "pickaxe" }),
+    utility = Window:Tab({ Title = "Utility", Icon = "wrench" }),
     settings = Window:Tab({ Title = "Settings", Icon = "sliders-horizontal" }),
 }
 
@@ -285,6 +282,8 @@ local S = {
     instantAccumulator  = math.huge,
     fastDigActive       = false,
     digSpeedMult        = 0.4,
+    wasAtBase           = false,
+    miningBoulder       = nil,
     pickupValueActive   = false,
     pickupLuckActive    = false,
     pickupMinValue      = 1000000000,
@@ -3822,7 +3821,7 @@ end
 
 do
     local function install()
-        local TopBox = Tabs.teleports:Section({ Title = "Top Crystals", Icon = "trophy", Opened = true })
+        local TopBox = Tabs.utility:Section({ Title = "Top Crystals", Icon = "trophy", Opened = true })
 
         local function fmtValue(_, score) return formatShort(score, "$") end
         local function fmtLuck(_, score) return formatLuck(score) end
@@ -3862,7 +3861,7 @@ end
 
 do
     local function install()
-        local PickupBox = Tabs.farming:Section({ Title = "Pickup", Icon = "pickaxe", Opened = true })
+        local PickupBox = Tabs.farm:Section({ Title = "Pickup", Icon = "pickaxe", Opened = true })
 
         PickupBox:Toggle({
             Title = "Auto Pickup",
@@ -3951,7 +3950,7 @@ end
 
 do
     local function install()
-        local MoveBox = Tabs.movement:Section({ Title = "Movement", Icon = "zap", Opened = true })
+        local MoveBox = Tabs.utility:Section({ Title = "Movement", Icon = "zap", Opened = true })
 
         MoveBox:Toggle({
             Title = "Speed Boost",
@@ -4053,7 +4052,7 @@ do
             aimKeybind = key
         end
 
-        local TeleportBox = Tabs.teleports:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
+        local TeleportBox = Tabs.utility:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
 
         TeleportBox:Toggle({
             Title = "Aim Teleport",
@@ -4462,6 +4461,7 @@ do
         local pendingFinish = false
         local lootUntil = 0
         local statusText = "Idle"
+        local noTargetClock = 0
 
         local function toggleValue(name)
             return false
@@ -5086,25 +5086,34 @@ do
 
             if phase == "scan" then
                 if not scanned then
-                    -- Stream mountain area without flying to scan points
-                    local spot = mountainSpot()
-                    if spot then
-                        requestStream(spot)
-                        pcall(function()
-                            LocalPlayer:RequestStreamAroundAsync(spot, 2)
-                        end)
-                    end
+                    local spot = mountainSpot() or root.Position
+                    requestStream(spot)
+                    pcall(function()
+                        LocalPlayer:RequestStreamAroundAsync(spot, 3)
+                    end)
                     scanned = true
+                    noTargetClock = 0
                     statusText = "Scanning targets"
                 end
 
                 local model = pickTarget()
                 if not model then
+                    noTargetClock = (noTargetClock or 0) + deltaTime
+                    -- Keep streaming and retry for a while before giving up
+                    local spot = mountainSpot() or root.Position
+                    if noTargetClock < 12 then
+                        if math.floor(noTargetClock * 2) % 2 == 0 then
+                            requestStream(spot)
+                        end
+                        statusText = string.format("Waiting for boulders %.0fs", noTargetClock)
+                        return
+                    end
                     beginLoot(true)
                     statusText = "Final rune sweep"
                     return
                 end
 
+                noTargetClock = 0
                 target = model
                 anchor = visibleAnchor(model)
                 spotFrame = nil
@@ -5302,16 +5311,17 @@ do
 
             if type(value) == "table" then
                 for key, flag in pairs(value) do
-                    if type(key) == "string" and flag == true then
+                    if type(key) == "string" and (flag == true or flag == "true") then
                         targets[key] = true
-                    elseif type(flag) == "string" then
+                    elseif type(flag) == "string" and flag ~= "" then
+                        targets[flag] = true
+                    elseif type(key) == "number" and type(flag) == "string" then
                         targets[flag] = true
                     end
                 end
-            elseif type(value) == "string" then
+            elseif type(value) == "string" and value ~= "" then
                 targets[value] = true
             end
-
         end
 
         local function setActive(value)
@@ -5320,18 +5330,16 @@ do
                 return
             end
 
+            -- If none selected, default to all boulder types
             if not next(targets) then
-                WindUI:Notify({
-                    Title = "Mine a Mountain",
-                    Content = "Pick at least one boulder",
-                    Duration = 2,
-                    Icon = "alert-circle",
-                })
-                return
+                for _, kind in ipairs(FARM_KINDS) do
+                    targets[kind] = true
+                end
             end
 
             active = true
             phase = "scan"
+            noTargetClock = 0
             waitUntil = 0
             target = nil
             anchor = nil
@@ -5358,11 +5366,11 @@ do
             Mountain.setAutoGrab(true)
         end
 
-        local FarmBox = Tabs.boulders:Section({ Title = "Boulder Farm", Icon = "bot", Opened = true })
+        local FarmBox = Tabs.farm:Section({ Title = "Boulder Farm", Icon = "bot", Opened = true })
 
         FarmBox:Paragraph({
-            Title = "Rune Farming",
-            Desc = "Specialized in rune farming",
+            Title = "Auto Boulders",
+            Desc = "Select targets then enable. Defaults to all types if none selected.",
         })
 
         FarmBox:Dropdown({
@@ -6076,7 +6084,7 @@ do
             Mountain.setAutoGrab(true)
         end
 
-        local MoneyBox = Tabs.farming:Section({ Title = "Money Farm", Icon = "banknote", Opened = true })
+        local MoneyBox = Tabs.farm:Section({ Title = "Money Farm", Icon = "banknote", Opened = true })
 
         MoneyBox:Paragraph({
             Title = "Money Farming",
@@ -6330,7 +6338,7 @@ do
     end
 
     local function install()
-        local FastDigBox = Tabs.farming:Section({ Title = "Fast Dig", Icon = "zap", Opened = true })
+        local FastDigBox = Tabs.farm:Section({ Title = "Fast Dig", Icon = "zap", Opened = true })
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
@@ -6344,7 +6352,7 @@ do
             Callback = setFastDig,
         })
 
-        local DigBox = Tabs.dig:Section({ Title = "Dig Settings", Icon = "settings-2", Opened = true })
+        local DigBox = Tabs.farm:Section({ Title = "Dig Speed", Icon = "gauge", Opened = false })
 
         DigBox:Paragraph({
             Title = "Dig Control",
@@ -6379,7 +6387,7 @@ end
 
 do
     local function install()
-        local PlotBox = Tabs.farming:Section({ Title = "Plot / Runes", Icon = "map-pin", Opened = true })
+        local PlotBox = Tabs.utility:Section({ Title = "Plot / Runes", Icon = "map-pin", Opened = true })
 
         local RUNE_LIST = {
             "Luck Rune", "Haste Rune", "Storm Rune", "Weight Rune",
@@ -6511,43 +6519,49 @@ do
                 return
             end
 
-            -- Grid positions across the plot region (world space)
+            -- Random low positions inside plot region (raycast ke tanah, bukan langit)
             local cf = region.CFrame
             local size = region.Size
-            local halfX = size.X * 0.35
-            local halfZ = size.Z * 0.35
-            local topY = region.Position.Y + size.Y * 0.5 + 1.2
+            -- stay inside plot with small padding
+            local halfX = math.max(size.X * 0.4, 2)
+            local halfZ = math.max(size.Z * 0.4, 2)
+            local topY = region.Position.Y + size.Y * 0.5 + 8
+            local bottomY = region.Position.Y - size.Y * 0.5 - 5
 
-            local slots = {}
-            local cols = math.max(2, math.ceil(math.sqrt(#runes)))
-            local rows = math.max(2, math.ceil(#runes / cols))
-            local idx = 0
-            for row = 0, rows - 1 do
-                for col = 0, cols - 1 do
-                    idx += 1
-                    if idx > #runes then
-                        break
-                    end
-                    local u = (cols == 1) and 0 or (col / (cols - 1) - 0.5) * 2
-                    local v = (rows == 1) and 0 or (row / (rows - 1) - 0.5) * 2
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            rayParams.FilterDescendantsInstances = { LocalPlayer.Character, plot }
+            rayParams.IgnoreWater = true
+
+            local function randomGroundPos()
+                for _ = 1, 12 do
+                    local u = (math.random() - 0.5) * 2
+                    local v = (math.random() - 0.5) * 2
                     local localPos = Vector3.new(u * halfX, 0, v * halfZ)
                     local world = cf:PointToWorldSpace(localPos)
-                    slots[#slots + 1] = Vector3.new(world.X, topY, world.Z)
+                    local origin = Vector3.new(world.X, topY, world.Z)
+                    local hit = Workspace:Raycast(origin, Vector3.new(0, bottomY - topY, 0), rayParams)
+                    if hit and hit.Position then
+                        -- slightly above surface so placement is valid
+                        return hit.Position + Vector3.new(0, 0.15, 0)
+                    end
                 end
+                -- fallback: near region center, low
+                local c = region.Position
+                return Vector3.new(c.X, region.Position.Y - size.Y * 0.5 + 1, c.Z)
             end
 
             task.spawn(function()
                 local placed = 0
                 local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
 
-                for i, tool in ipairs(runes) do
+                for _, tool in ipairs(runes) do
                     if not tool.Parent then
                         continue
                     end
-                    local pos = slots[i] or slots[#slots]
-                    if not pos then
-                        break
-                    end
+
+                    local pos = randomGroundPos()
+                    local yaw = math.random() * math.pi * 2
 
                     if humanoid and tool.Parent ~= LocalPlayer.Character then
                         pcall(function()
@@ -6559,12 +6573,12 @@ do
                     local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name) or tool
 
                     local ok = pcall(function()
-                        remote:FireServer(held.Name, pos, 0, held)
+                        remote:FireServer(held.Name, pos, yaw, held)
                     end)
                     if ok then
                         placed += 1
                     end
-                    task.wait(0.35)
+                    task.wait(0.4)
                 end
 
                 WindUI:Notify({
@@ -6672,7 +6686,7 @@ do
             end
         })
 
-        local ShopBox = Tabs.settings:Section({ Title = "Shops", Icon = "shopping-bag", Opened = true })
+        local ShopBox = Tabs.utility:Section({ Title = "Shops", Icon = "shopping-bag", Opened = false })
 
         ShopBox:Button({
             Title = "Open Bomb Shop",
