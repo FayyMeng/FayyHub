@@ -6387,6 +6387,8 @@ do
             "Excavator Rune", "Colossus Rune",
         }
 
+        local selectedRunes = {} -- [runeName] = true
+
         local function getOwnedPlotModel()
             local things = Workspace:FindFirstChild("Things")
             local plots = things and things:FindFirstChild("Plots")
@@ -6394,11 +6396,14 @@ do
             if not slots then
                 return nil
             end
+
+            -- Prioritas: folder name = LocalPlayer.Name (Workspace.Things.Plots.Slots.Username)
             local byName = slots:FindFirstChild(LocalPlayer.Name)
             if byName then
                 return byName
             end
-            -- fallback: match by attribute / owner
+
+            -- Fallback: match by attribute / owner
             for _, slot in ipairs(slots:GetChildren()) do
                 if slot:IsA("Model") then
                     local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
@@ -6407,10 +6412,32 @@ do
                     end
                 end
             end
+
+            -- Fallback 2: cek Sign di dalam slot
+            for _, child in ipairs(slots:GetChildren()) do
+                local sign = child:FindFirstChild("Sign")
+                if sign then
+                    local text = ""
+                    if sign:IsA("BasePart") then
+                        local surface = sign:FindFirstChildOfClass("SurfaceGui") or sign:FindFirstChildOfClass("BillboardGui")
+                        if surface then
+                            local label = surface:FindFirstChildOfClass("TextLabel")
+                            if label then text = tostring(label.Text or "") end
+                        end
+                    elseif sign:IsA("Model") then
+                        local label = sign:FindFirstChildWhichIsA("TextLabel", true)
+                        if label then text = tostring(label.Text or "") end
+                    end
+                    if text ~= "" and (text:find(LocalPlayer.Name, 1, true) or text:find(LocalPlayer.DisplayName, 1, true)) then
+                        return child
+                    end
+                end
+            end
+
             return nil
         end
 
-        local function collectRuneTools()
+        local function collectRuneTools(selectedOnly)
             local list = {}
             local function scan(container)
                 if not container then
@@ -6418,7 +6445,9 @@ do
                 end
                 for _, child in ipairs(container:GetChildren()) do
                     if child:IsA("Tool") and child.Name:find("Rune", 1, true) then
-                        list[#list + 1] = child
+                        if not selectedOnly or selectedRunes[child.Name] then
+                            list[#list + 1] = child
+                        end
                     end
                 end
             end
@@ -6427,13 +6456,23 @@ do
             return list
         end
 
-        local function placeRunesOnPlot()
+        local function placeSelectedRunes()
+            if next(selectedRunes) == nil then
+                WindUI:Notify({
+                    Title = "Place Runes",
+                    Content = "Pilih minimal 1 rune di dropdown dulu!",
+                    Duration = 3,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
             local plot = getOwnedPlotModel()
             if not plot then
                 WindUI:Notify({
                     Title = "Plot",
-                    Content = "Own plot not found",
-                    Duration = 2,
+                    Content = "Own plot not found (Things.Plots.Slots.[Username])",
+                    Duration = 3,
                     Icon = "alert-circle",
                 })
                 return
@@ -6461,12 +6500,12 @@ do
                 return
             end
 
-            local runes = collectRuneTools()
+            local runes = collectRuneTools(true) -- hanya yang dipilih
             if #runes == 0 then
                 WindUI:Notify({
-                    Title = "Plot",
-                    Content = "No runes in inventory",
-                    Duration = 2,
+                    Title = "Place Runes",
+                    Content = "Tidak ada rune terpilih di inventory / character",
+                    Duration = 3,
                     Icon = "alert-circle",
                 })
                 return
@@ -6477,7 +6516,7 @@ do
             local size = region.Size
             local halfX = size.X * 0.35
             local halfZ = size.Z * 0.35
-            local topY = region.Position.Y + size.Y * 0.5 + 1
+            local topY = region.Position.Y + size.Y * 0.5 + 1.2
 
             local slots = {}
             local cols = math.max(2, math.ceil(math.sqrt(#runes)))
@@ -6499,6 +6538,8 @@ do
 
             task.spawn(function()
                 local placed = 0
+                local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+
                 for i, tool in ipairs(runes) do
                     if not tool.Parent then
                         continue
@@ -6507,16 +6548,16 @@ do
                     if not pos then
                         break
                     end
-                    -- Equip then place (server expects tool instance)
-                    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+
                     if humanoid and tool.Parent ~= LocalPlayer.Character then
                         pcall(function()
                             humanoid:EquipTool(tool)
                         end)
-                        task.wait(0.12)
+                        task.wait(0.15)
                     end
-                    local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
-                    held = held or tool
+
+                    local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name) or tool
+
                     local ok = pcall(function()
                         remote:FireServer(held.Name, pos, 0, held)
                     end)
@@ -6525,24 +6566,91 @@ do
                     end
                     task.wait(0.35)
                 end
+
                 WindUI:Notify({
-                    Title = "Plot",
-                    Content = string.format("Placed %d rune(s) on plot", placed),
+                    Title = "Place Runes",
+                    Content = string.format("Berhasil place %d rune", placed),
                     Duration = 3,
                     Icon = "check",
                 })
             end)
         end
 
+        local function pickupAllPlacedRunes()
+            local Event = findRemote("PlotPlacePickup")
+            if not Event then
+                WindUI:Notify({
+                    Title = "Pickup",
+                    Content = "Remote PlotPlacePickup tidak ditemukan",
+                    Duration = 3,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            if typeof(getnilinstances) ~= "function" then
+                WindUI:Notify({
+                    Title = "Pickup",
+                    Content = "Executor tidak support getnilinstances()",
+                    Duration = 3,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            local count = 0
+            local nils = getnilinstances()
+
+            for _, obj in ipairs(nils) do
+                if typeof(obj) == "Instance" and type(obj.Name) == "string" and obj.Name:find("Rune", 1, true) then
+                    local ok = pcall(function()
+                        Event:FireServer(obj)
+                    end)
+                    if ok then
+                        count += 1
+                    end
+                end
+            end
+
+            WindUI:Notify({
+                Title = "Pickup Runes",
+                Content = string.format("Mencoba pickup %d rune (nil instances)", count),
+                Duration = 3,
+                Icon = count > 0 and "check" or "alert-circle",
+            })
+        end
+
         PlotBox:Paragraph({
-            Title = "Place Runes",
-            Desc = "Detects your plot (Things.Plots.Slots) and places held/backpack runes on it.",
+            Title = "Place & Pickup Runes",
+            Desc = "Deteksi plot: Workspace.Things.Plots.Slots.[Username]\nPilih rune di dropdown lalu place. Bisa juga pickup semua yang sudah di-place.",
+        })
+
+        PlotBox:Dropdown({
+            Title = "Pilih Rune yang mau di-Place",
+            Desc = "Centang rune mana saja yang ingin di-place (bukan place all)",
+            Values = RUNE_LIST,
+            Multi = true,
+            AllowNone = true,
+            Callback = function(option)
+                table.clear(selectedRunes)
+                if type(option) == "table" then
+                    for _, name in ipairs(option) do
+                        selectedRunes[name] = true
+                    end
+                end
+            end
         })
 
         PlotBox:Button({
-            Title = "Place All Runes On Plot",
-            Desc = "Auto place every rune tool onto your plot",
-            Callback = placeRunesOnPlot,
+            Title = "Place Selected Runes",
+            Desc = "Place hanya rune yang dipilih di dropdown",
+            Callback = placeSelectedRunes,
+        })
+
+        PlotBox:Button({
+            Title = "Pickup All Placed Runes",
+            Desc = "Pickup semua rune yang sudah di-place (PlotPlacePickup + getnilinstances)",
+            Callback = pickupAllPlacedRunes,
         })
 
         PlotBox:Button({
