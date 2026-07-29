@@ -232,8 +232,7 @@ local Window = WindUI:CreateWindow({
 })
 
 local Tabs = {
-    crystals = Window:Tab({ Title = "Crystals", Icon = "gem" }),
-    players = Window:Tab({ Title = "Players", Icon = "users" }),
+    esp = Window:Tab({ Title = "ESP", Icon = "eye" }),
     boulders = Window:Tab({ Title = "Boulders", Icon = "mountain" }),
     teleports = Window:Tab({ Title = "Teleports", Icon = "crosshair" }),
     farming = Window:Tab({ Title = "Farming", Icon = "pickaxe" }),
@@ -267,9 +266,9 @@ local S = {
     luckEspActive       = false,
     luckEspCache        = {},
     luckEspCount        = 0,
-    espScale            = 0.7,
-    playerScale         = 0.6,
-    boulderScale        = 0.6,
+    espScale            = 0.4,
+    playerScale         = 0.4,
+    boulderScale        = 0.4,
     rootPart            = nil,
     lastReport          = 0,
     tpState             = nil,
@@ -1707,6 +1706,7 @@ local function pickupCandidates(free, origin)
     table.clear(found)
     table.clear(seen)
     local now = os.clock()
+    local atBase = isAtBase()
 
     local function consider(child)
         if not child or seen[child] then
@@ -1732,24 +1732,32 @@ local function pickupCandidates(free, origin)
             end
         end
 
-        -- Auto Pickup by Value
-        if S.pickupValueActive then
+        -- Auto Pickup by Value (disabled at base)
+        if S.pickupValueActive and not atBase then
             if value < (S.pickupMinValue or 0) then
                 return
             end
+        elseif S.pickupValueActive and atBase and not S.autoPickupActive then
+            return
         end
 
-        -- Auto Pickup by Luck
-        if S.pickupLuckActive then
+        -- Auto Pickup by Luck (disabled at base)
+        if S.pickupLuckActive and not atBase then
             local ok, luck = pcall(crystalLuck, child)
             local luckPct = (ok and luck or 0) * 100
             if luckPct < (S.pickupMinLuck or 0) then
                 return
             end
+        elseif S.pickupLuckActive and atBase and not S.autoPickupActive then
+            return
         end
 
-        -- If only value/luck modes (no plain auto pickup), still allow
         if not S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
+            return
+        end
+
+        -- At base: only plain Auto Pickup may run
+        if atBase and not S.autoPickupActive then
             return
         end
 
@@ -2419,6 +2427,24 @@ local function mountainSpan()
     return 150
 end
 
+-- True when player is at base / not on the mountain
+local function isAtBase()
+    local root = getRoot()
+    if not root then
+        return true
+    end
+
+    local spot = mountainSpot()
+    if not spot then
+        -- No mountain data: treat low Y / far from high terrain as base
+        return root.Position.Y < 80
+    end
+
+    local flat = Vector2.new(root.Position.X - spot.X, root.Position.Z - spot.Z)
+    local span = mountainSpan() + 40
+    return flat.Magnitude > span
+end
+
 local sellClock = 0
 
 local function doSell()
@@ -2901,7 +2927,7 @@ do
                 end
             end
 
-            if autoGrab then
+            if autoGrab and not isAtBase() then
                 grabClock += deltaTime
                 if grabClock >= GRAB_STEP then
                     grabClock = 0
@@ -3410,7 +3436,7 @@ end
 
 do
     local function install()
-        local CrystalBox = Tabs.crystals:Section({ Title = "Crystal ESP", Icon = "gem", Opened = true })
+        local CrystalBox = Tabs.esp:Section({ Title = "Crystal ESP", Icon = "gem", Opened = true })
 
         CrystalBox:Toggle({
             Title = "Crystal ESP",
@@ -3432,7 +3458,7 @@ do
             Value = {
                 Min = 40,
                 Max = 250,
-                Default = 70,
+                Default = 40,
             },
             Callback = function(value)
                 S.espScale = value / 100
@@ -3475,7 +3501,7 @@ do
         end
 
         -- ── ESP Luck Filter ──────────────────────────────────────
-        local LuckBox = Tabs.crystals:Section({ Title = "ESP Luck", Icon = "sparkles", Opened = true })
+        local LuckBox = Tabs.esp:Section({ Title = "ESP Luck", Icon = "sparkles", Opened = true })
 
         LuckBox:Paragraph({
             Title = "Luck ESP",
@@ -3522,7 +3548,7 @@ end
 
 do
     local function install()
-        local PlayerBox = Tabs.players:Section({ Title = "Player ESP", Icon = "users", Opened = true })
+        local PlayerBox = Tabs.esp:Section({ Title = "Player ESP", Icon = "users", Opened = true })
 
         PlayerBox:Toggle({
             Title = "Player ESP",
@@ -3543,7 +3569,7 @@ do
             Value = {
                 Min = 40,
                 Max = 250,
-                Default = 60,
+                Default = 40,
             },
             Callback = function(value)
                 S.playerScale = value / 100
@@ -3557,7 +3583,7 @@ end
 
 do
     local function install()
-        local BoulderBox = Tabs.boulders:Section({ Title = "Boulder ESP", Icon = "mountain", Opened = true })
+        local BoulderBox = Tabs.esp:Section({ Title = "Boulder ESP", Icon = "mountain", Opened = true })
 
         BoulderBox:Toggle({
             Title = "Boulder ESP",
@@ -3573,7 +3599,7 @@ do
             Value = {
                 Min = 40,
                 Max = 250,
-                Default = 60,
+                Default = 40,
             },
             Callback = function(value)
                 S.boulderScale = value / 100
@@ -5971,43 +5997,50 @@ do
         return false
     end
 
-    local function getDigAim(camera, character)
+    local BOULDER_NAME_KEYS = {
+        "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite", "Boulder",
+    }
+
+    local function isBoulderInstance(inst)
+        local node = inst
+        for _ = 1, 8 do
+            if not node then
+                break
+            end
+            local name = node.Name or ""
+            for _, key in ipairs(BOULDER_NAME_KEYS) do
+                if name:find(key, 1, true) then
+                    return true
+                end
+            end
+            if node.Parent and node.Parent.Name == "Boulders" then
+                return true
+            end
+            if node.Parent and node.Parent.Name == "BoulderTest" then
+                return true
+            end
+            node = node.Parent
+        end
+        return false
+    end
+
+    -- Raycast: only return aim if looking at a boulder (not terrain around it)
+    local function getBoulderDigAim(camera, character)
         local origin = camera.CFrame.Position
         local look = camera.CFrame.LookVector
 
-        local exclude = { character }
-        aimParams.FilterDescendantsInstances = exclude
+        aimParams.FilterDescendantsInstances = { character }
+        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 20), aimParams)
 
-        local hit = Workspace:Raycast(origin, look * (DIG_RANGE + 15), aimParams)
-
-        -- Skip crystals so dig goes to terrain/boulder behind them
-        if hit and hit.Instance then
-            local inst = hit.Instance
-            local cry = isCrystal(inst)
-                or (inst.Parent and isCrystal(inst.Parent))
-                or getAttr(inst, "Value") ~= nil
-                or getAttr(inst, "CrystalName") ~= nil
-                or (inst.Parent and (getAttr(inst.Parent, "Value") ~= nil or getAttr(inst.Parent, "CrystalName") ~= nil))
-
-            if cry then
-                exclude[#exclude + 1] = inst
-                if inst.Parent then
-                    exclude[#exclude + 1] = inst.Parent
-                end
-                aimParams.FilterDescendantsInstances = exclude
-                hit = Workspace:Raycast(origin, look * (DIG_RANGE + 15), aimParams)
-            end
+        if not hit or not hit.Instance then
+            return nil
         end
 
-        if hit and hit.Position then
-            local dist = (hit.Position - origin).Magnitude
-            if dist <= DIG_RANGE + 8 then
-                return hit.Position, hit.Instance
-            end
+        if not isBoulderInstance(hit.Instance) then
+            return nil
         end
 
-        -- Fallback close point in look direction
-        return origin + look * math.min(DIG_RANGE, 12), nil
+        return hit.Position, hit.Instance
     end
 
     local function fastDigStep(deltaTime)
@@ -6040,6 +6073,17 @@ do
             return
         end
 
+        -- Safety: disable Fast Dig while at base
+        if isAtBase() then
+            return
+        end
+
+        -- Only dig when aiming at a boulder (not surrounding terrain)
+        local aim, boulderPart = getBoulderDigAim(camera, character)
+        if not aim then
+            return
+        end
+
         -- Same timing as Auto Mine / Boulder farm (Farm.swingGap * 0.4)
         local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
         local swingNeed = math.max(0.02, baseGap * 0.4)
@@ -6049,23 +6093,21 @@ do
             return
         end
 
-        -- Cap backlog so delay does not stack
         if swingClock > swingNeed * 3 then
             swingClock = swingNeed * 3
         end
         swingClock = swingClock - swingNeed
 
-        local aim = getDigAim(camera, character)
         local name = pick.Name
+        local core = aim
 
-        -- Boulder-style dig: only DigRequest burst (server plays dig animation)
-        -- Alternate core / slightly offset like Farm.swing
+        -- Boulder-style dig burst focused on boulder hit point only
         pcall(function()
             for index = 1, SWING_BURST do
                 if index % 2 == 0 then
-                    event:FireServer(name, aim)
+                    event:FireServer(name, core)
                 else
-                    event:FireServer(name, aim - Vector3.new(0, 1.2, 0))
+                    event:FireServer(name, core - Vector3.new(0, 1.0, 0))
                 end
             end
         end)
@@ -6083,12 +6125,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Uses the same DigRequest burst as Auto Boulder/Mine. Aims via camera raycast. Pauses while mining crystals.",
+            Desc = "Only digs when aiming at boulders (not terrain). Off at base and while mining crystals.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Fast dig (boulder method, less delay)",
+            Desc = "Boulder-only fast dig (off at base)",
             Value = false,
             Callback = setFastDig,
         })
