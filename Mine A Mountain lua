@@ -6042,7 +6042,7 @@ do
 
         -- Same timing as Auto Mine / Boulder farm (Farm.swingGap * 0.4)
         local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
-        local swingNeed = math.max(0.015, baseGap * 0.35)
+        local swingNeed = math.max(0.02, baseGap * 0.4)
 
         swingClock = swingClock + deltaTime
         if swingClock < swingNeed then
