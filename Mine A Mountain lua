@@ -105,8 +105,8 @@ local ToggleFavorite = findRemote("ToggleFavorite")
 
 local ESP = {
     font = Enum.Font.GothamBold,
-    sweep = 0.5,
-    budget = 0.005,
+    sweep = 0.35,
+    budget = 0.008,
     offset = Vector3.new(0, 3, 0),
     width = 250,
     height = 66,
@@ -285,7 +285,6 @@ local S = {
     instantAccumulator  = math.huge,
     fastDigActive       = false,
     digSpeedMult        = 0.4,
-    digMode             = "Normal",
     pickupValueActive   = false,
     pickupLuckActive    = false,
     pickupMinValue      = 1000000000,
@@ -711,7 +710,7 @@ end
 
 local function eachContainer(fn)
     local now = os.clock()
-    local stale = #containerList == 0 or now - containerClock >= 1
+    local stale = #containerList == 0 or now - containerClock >= 0.5
 
     if not stale then
         for _, container in ipairs(containerList) do
@@ -2197,6 +2196,28 @@ local function setSpeedBoost(value)
     end
 end
 
+
+-- Refresh player ESP when someone joins / leaves
+pcall(function()
+    Players.PlayerAdded:Connect(function()
+        if S.playerEspActive then
+            task.defer(function()
+                pcall(updatePlayerEsp)
+            end)
+        end
+    end)
+    Players.PlayerRemoving:Connect(function(player)
+        if S.playerEspActive then
+            pcall(function()
+                if S.playerCache and S.playerCache[player] then
+                    -- cleanup handled in updatePlayerEsp
+                end
+                updatePlayerEsp()
+            end)
+        end
+    end)
+end)
+
 local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.tpState then
         local ok, err = pcall(function()
@@ -2709,6 +2730,12 @@ do
                 return
             end
 
+            if entry.highlight then
+                pcall(function()
+                    entry.highlight:Destroy()
+                end)
+                entry.highlight = nil
+            end
             if entry.gui then
                 entry.gui:Destroy()
             end
@@ -2870,11 +2897,28 @@ do
                         BOULDER_WIDTH,
                         BOULDER_HEIGHT
                     )
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "UniverseBoulderOutline"
+                    hl.Adornee = model
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.FillTransparency = 0.75
+                    hl.OutlineTransparency = 0
+                    hl.FillColor = info.color
+                    hl.OutlineColor = info.color
+                    hl.Parent = EspHolder
+                    entry.highlight = hl
                     boulderCache[model] = entry
                 end
 
                 if entry.gui.Adornee ~= anchor then
                     entry.gui.Adornee = anchor
+                end
+                if entry.highlight then
+                    if entry.highlight.Adornee ~= model then
+                        entry.highlight.Adornee = model
+                    end
+                    entry.highlight.FillColor = info.color
+                    entry.highlight.OutlineColor = info.color
                 end
 
                 scaleCard(entry)
@@ -2882,7 +2926,18 @@ do
                 setLine(entry, 2, string.format("%s \u{2022} %s crystals", info.pickaxe, info.crystals))
 
                 local distance = origin and formatDistance((anchor.Position - origin).Magnitude) or "--"
-                setLine(entry, 3, string.format("%s \u{2022} %s", info.runes, distance))
+                local hpText = ""
+                if S.miningBoulder == model then
+                    local hp = tonumber(getAttr(model, "Health"))
+                        or tonumber(getAttr(model, "Hp"))
+                        or tonumber(getAttr(model, "CurrentHealth"))
+                    if hp then
+                        hpText = string.format(" \u{2022} HP %.0f", hp)
+                    else
+                        hpText = " \u{2022} Mining..."
+                    end
+                end
+                setLine(entry, 3, string.format("%s \u{2022} %s%s", info.runes, distance, hpText))
             end)
 
             local stale
@@ -4926,6 +4981,7 @@ do
             dryClock = 0
             probeIndex = 0
             statusText = "Idle"
+            S.miningBoulder = nil
 
             Move.setFly(false)
             Move.setNoclip(false)
@@ -4952,24 +5008,16 @@ do
 
             if phase == "scan" then
                 if not scanned then
-                    if scanIndex == 0 then
-                        scanIndex = 1
-                        waitUntil = now + SCAN_HOLD
+                    -- Stream mountain area without flying to scan points
+                    local spot = mountainSpot()
+                    if spot then
+                        requestStream(spot)
+                        pcall(function()
+                            LocalPlayer:RequestStreamAroundAsync(spot, 2)
+                        end)
                     end
-
-                    if scanIndex <= #SCAN_SPOTS then
-                        hold(SCAN_SPOTS[scanIndex])
-                        statusText = string.format("Scanning %d/%d", scanIndex, #SCAN_SPOTS)
-
-                        if now >= waitUntil then
-                            scanIndex += 1
-                            waitUntil = now + SCAN_HOLD
-                        end
-
-                        return
-                    end
-
                     scanned = true
+                    statusText = "Scanning targets"
                 end
 
                 local model = pickTarget()
@@ -4995,10 +5043,13 @@ do
 
             if phase == "mine" then
                 if not target or not target.Parent then
+                    S.miningBoulder = nil
                     lastSpot = root.CFrame
                     beginLoot(false)
                     return
                 end
+
+                S.miningBoulder = target
 
                 local kind = boulderKind(target) or "Boulder"
                 local hp = boulderHealth(target)
@@ -5724,25 +5775,17 @@ do
             local now = os.clock()
 
             if not loaded then
-                if scanIndex == 0 then
-                    scanIndex = 1
-                    scanUntil = now + SCAN_HOLD
+                -- Stream without traveling to scan spots
+                local spot = mountainSpot()
+                if spot then
+                    requestStream(spot)
+                    pcall(function()
+                        LocalPlayer:RequestStreamAroundAsync(spot, 2)
+                    end)
                 end
-
-                if scanIndex <= #SCAN_SPOTS then
-                    holdAt(SCAN_SPOTS[scanIndex])
-                    statusText = string.format("Loading terrain %d/%d", scanIndex, #SCAN_SPOTS)
-
-                    if now >= scanUntil then
-                        scanIndex += 1
-                        scanUntil = now + SCAN_HOLD
-                    end
-
-                    return
-                end
-
                 loaded = true
                 peakClock = 0
+                statusText = "Terrain loaded"
             end
 
             if sellUntil > 0 then
@@ -6176,36 +6219,12 @@ do
         end
 
         local name = pick.Name
-        local cf = camera.CFrame
-        local look = cf.LookVector
-        local right = cf.RightVector
-        local up = cf.UpVector
-        local mode = S.digMode or "Normal"
-        local reach = 5
+        local look = camera.CFrame.LookVector
 
-        local points = { aim }
-
-        if mode == "Advance" then
-            -- One dig covers front, right, back, up, left around the hit point
-            points = {
-                aim,                              -- center / front hit
-                aim + look * reach,               -- depan
-                aim + right * reach,              -- kanan
-                aim - look * reach,               -- belakang
-                aim + up * reach,                 -- atas
-                aim - right * reach,              -- kiri
-                aim - up * (reach * 0.5),         -- sedikit ke bawah
-            }
-        else
-            -- Normal: only along look direction (depth)
-            for index = 1, SWING_BURST do
-                points[#points + 1] = aim + look * ((index - 1) * 0.8)
-            end
-        end
-
+        -- Normal dig only along look direction
         pcall(function()
-            for _, point in ipairs(points) do
-                event:FireServer(name, point)
+            for index = 1, SWING_BURST do
+                event:FireServer(name, aim + look * ((index - 1) * 0.8))
             end
         end)
     end
@@ -6216,12 +6235,11 @@ do
     end
 
     local function install()
-        -- Fast Dig toggle stays on Farming
         local FastDigBox = Tabs.farming:Section({ Title = "Fast Dig", Icon = "zap", Opened = true })
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Uses Dig Settings for speed & direction. Off at base and while mining crystals.",
+            Desc = "Uses Dig Settings for speed. Off at base and while mining crystals.",
         })
 
         FastDigBox:Toggle({
@@ -6231,12 +6249,11 @@ do
             Callback = setFastDig,
         })
 
-        -- Dig Settings tab
         local DigBox = Tabs.dig:Section({ Title = "Dig Settings", Icon = "settings-2", Opened = true })
 
         DigBox:Paragraph({
             Title = "Dig Control",
-            Desc = "Speed multiplier 0.4 = Auto Mine speed. Advance digs 5 directions around the look hit.",
+            Desc = "Speed multiplier 0.4 = same as Auto Mine. Digs only along look direction.",
         })
 
         DigBox:Slider({
@@ -6251,19 +6268,6 @@ do
             Callback = function(value)
                 S.digSpeedMult = tonumber(value) or 0.4
                 swingClock = 0
-            end
-        })
-
-        DigBox:Dropdown({
-            Title = "Dig Mode",
-            Desc = "Normal = look direction only | Advance = front/right/back/up/left",
-            Values = { "Normal", "Advance" },
-            Value = "Normal",
-            Callback = function(option)
-                if type(option) == "table" then
-                    option = option[1] or option.Value or "Normal"
-                end
-                S.digMode = tostring(option or "Normal")
             end
         })
     end
