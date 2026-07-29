@@ -39,7 +39,13 @@ do
 
     silenceIdle()
 
-    afkConns[#afkConns + 1] = LocalPlayer.Idled:Connect(nudge)
+    -- Idled may not exist on all clients / executors
+    pcall(function()
+        local idled = LocalPlayer.Idled
+        if idled then
+            afkConns[#afkConns + 1] = idled:Connect(nudge)
+        end
+    end)
 
     task.spawn(function()
         while afkRunning do
@@ -49,8 +55,8 @@ do
                 break
             end
 
-            silenceIdle()
-            nudge()
+            pcall(silenceIdle)
+            pcall(nudge)
         end
     end)
 end
