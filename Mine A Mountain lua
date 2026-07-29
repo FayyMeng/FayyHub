@@ -6590,6 +6590,81 @@ do
             end)
         end
 
+        local function isPlacedRuneModel(inst)
+            if not inst or not inst.Parent then
+                return false
+            end
+            if inst:IsA("Model") or inst:IsA("BasePart") then
+                if getAttr(inst, "IsRune") == true then
+                    return true
+                end
+                if getAttr(inst, "RuneId") ~= nil or getAttr(inst, "RuneName") ~= nil then
+                    return true
+                end
+                if type(inst.Name) == "string" and inst.Name:find("Rune", 1, true) then
+                    return true
+                end
+            end
+            return false
+        end
+
+        local function collectPlacedRunesOnPlot(plot)
+            local list = {}
+            local seen = {}
+
+            local function add(inst)
+                if not inst or seen[inst] then
+                    return
+                end
+                -- Prefer model root
+                local model = inst
+                if inst:IsA("BasePart") and inst.Parent and inst.Parent:IsA("Model") then
+                    model = inst.Parent
+                end
+                if seen[model] then
+                    return
+                end
+                if isPlacedRuneModel(model) or isPlacedRuneModel(inst) then
+                    seen[model] = true
+                    list[#list + 1] = model
+                end
+            end
+
+            local folder = plot:FindFirstChild("PlacedRunes")
+            if folder then
+                for _, child in ipairs(folder:GetChildren()) do
+                    add(child)
+                end
+            end
+
+            for _, desc in ipairs(plot:GetDescendants()) do
+                if isPlacedRuneModel(desc) then
+                    add(desc)
+                end
+            end
+
+            return list
+        end
+
+        local function runeWorldPosition(inst)
+            if inst:IsA("BasePart") then
+                return inst.Position
+            end
+            if inst:IsA("Model") then
+                local ok, pivot = pcall(function()
+                    return inst:GetPivot().Position
+                end)
+                if ok and pivot then
+                    return pivot
+                end
+                local part = inst.PrimaryPart or inst:FindFirstChild("Handle") or inst:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    return part.Position
+                end
+            end
+            return nil
+        end
+
         local function pickupAllPlacedRunes()
             local Event = findRemote("PlotPlacePickup")
             if not Event then
@@ -6602,36 +6677,95 @@ do
                 return
             end
 
-            if typeof(getnilinstances) ~= "function" then
+            local plot = getOwnedPlotModel()
+            if not plot then
                 WindUI:Notify({
                     Title = "Pickup",
-                    Content = "Executor tidak support getnilinstances()",
+                    Content = "Own plot not found",
                     Duration = 3,
                     Icon = "alert-circle",
                 })
                 return
             end
 
-            local count = 0
-            local nils = getnilinstances()
-
-            for _, obj in ipairs(nils) do
-                if typeof(obj) == "Instance" and type(obj.Name) == "string" and obj.Name:find("Rune", 1, true) then
-                    local ok = pcall(function()
-                        Event:FireServer(obj)
-                    end)
-                    if ok then
-                        count += 1
-                    end
-                end
+            local runes = collectPlacedRunesOnPlot(plot)
+            if #runes == 0 then
+                WindUI:Notify({
+                    Title = "Pickup",
+                    Content = "Tidak ada rune di plot",
+                    Duration = 3,
+                    Icon = "alert-circle",
+                })
+                return
             end
 
-            WindUI:Notify({
-                Title = "Pickup Runes",
-                Content = string.format("Mencoba pickup %d rune (nil instances)", count),
-                Duration = 3,
-                Icon = count > 0 and "check" or "alert-circle",
-            })
+            task.spawn(function()
+                -- Float so tidak jatuh kalau rune di udara
+                if Move and Move.setFly then
+                    pcall(Move.setFly, true)
+                end
+                if Move and Move.setNoclip then
+                    pcall(Move.setNoclip, true)
+                end
+
+                local picked = 0
+                for _, rune in ipairs(runes) do
+                    if not rune or not rune.Parent then
+                        continue
+                    end
+
+                    local pos = runeWorldPosition(rune)
+                    if not pos then
+                        continue
+                    end
+
+                    -- Dekat objek (sedikit di atas biar float)
+                    local hover = pos + Vector3.new(0, 3, 0)
+                    pcall(teleportTo, hover)
+                    task.wait(0.25)
+
+                    -- Pastikan tetap dekat lalu fire pickup
+                    local root = getRoot()
+                    if root then
+                        local dist = (root.Position - pos).Magnitude
+                        if dist > 12 then
+                            pcall(teleportTo, hover)
+                            task.wait(0.15)
+                        end
+                    end
+
+                    local ok = pcall(function()
+                        Event:FireServer(rune)
+                    end)
+                    if ok then
+                        picked += 1
+                    end
+                    task.wait(0.35)
+                end
+
+                -- Kembali ke base
+                task.wait(0.2)
+                if GoHome then
+                    pcall(function()
+                        fireRemote(GoHome, "home")
+                    end)
+                end
+
+                task.wait(0.6)
+                if Move and Move.setFly then
+                    pcall(Move.setFly, false)
+                end
+                if Move and Move.setNoclip then
+                    pcall(Move.setNoclip, false)
+                end
+
+                WindUI:Notify({
+                    Title = "Pickup Runes",
+                    Content = string.format("Picked %d rune(s), returning to base", picked),
+                    Duration = 3,
+                    Icon = "check",
+                })
+            end)
         end
 
         PlotBox:Paragraph({
@@ -6663,7 +6797,7 @@ do
 
         PlotBox:Button({
             Title = "Pickup All Placed Runes",
-            Desc = "Pickup semua rune yang sudah di-place (PlotPlacePickup + getnilinstances)",
+            Desc = "TP ke tiap rune di plot (float), pickup, lalu kembali ke base",
             Callback = pickupAllPlacedRunes,
         })
 
