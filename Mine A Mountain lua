@@ -2736,6 +2736,18 @@ do
                 end)
                 entry.highlight = nil
             end
+            if entry.selection then
+                pcall(function()
+                    entry.selection:Destroy()
+                end)
+                entry.selection = nil
+            end
+            if entry.box then
+                pcall(function()
+                    entry.box:Destroy()
+                end)
+                entry.box = nil
+            end
             if entry.gui then
                 entry.gui:Destroy()
             end
@@ -2897,26 +2909,68 @@ do
                         BOULDER_WIDTH,
                         BOULDER_HEIGHT
                     )
+                    -- Outline that stays visible even when boulder parts are invisible
+                    local sel = Instance.new("SelectionBox")
+                    sel.Name = "UniverseBoulderOutline"
+                    sel.Adornee = model
+                    sel.Color3 = info.color
+                    sel.LineThickness = 0.08
+                    sel.SurfaceColor3 = info.color
+                    sel.SurfaceTransparency = 0.7
+                    sel.Parent = EspHolder
+                    entry.selection = sel
+
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Name = "UniverseBoulderBox"
+                    box.Adornee = anchor
+                    box.AlwaysOnTop = true
+                    box.ZIndex = 5
+                    box.Size = anchor.Size
+                    box.Color3 = info.color
+                    box.Transparency = 0.55
+                    box.Parent = EspHolder
+                    entry.box = box
+
+                    -- Highlight as extra layer (works once boulder becomes visible)
                     local hl = Instance.new("Highlight")
-                    hl.Name = "UniverseBoulderOutline"
+                    hl.Name = "UniverseBoulderHighlight"
                     hl.Adornee = model
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.FillTransparency = 0.75
+                    hl.FillTransparency = 0.8
                     hl.OutlineTransparency = 0
                     hl.FillColor = info.color
                     hl.OutlineColor = info.color
                     hl.Parent = EspHolder
                     entry.highlight = hl
+
                     boulderCache[model] = entry
                 end
 
                 if entry.gui.Adornee ~= anchor then
                     entry.gui.Adornee = anchor
                 end
+                if entry.selection then
+                    entry.selection.Adornee = model
+                    entry.selection.Color3 = info.color
+                    entry.selection.SurfaceColor3 = info.color
+                end
+                if entry.box then
+                    entry.box.Adornee = anchor
+                    entry.box.Color3 = info.color
+                    -- Keep box size in sync with anchor (invisible boulders still have size)
+                    pcall(function()
+                        if model:IsA("Model") then
+                            local size = model:GetExtentsSize()
+                            entry.box.Size = size
+                            entry.box.CFrame = CFrame.new(model:GetPivot().Position - anchor.Position)
+                        else
+                            entry.box.Size = anchor.Size
+                            entry.box.CFrame = CFrame.new()
+                        end
+                    end)
+                end
                 if entry.highlight then
-                    if entry.highlight.Adornee ~= model then
-                        entry.highlight.Adornee = model
-                    end
+                    entry.highlight.Adornee = model
                     entry.highlight.FillColor = info.color
                     entry.highlight.OutlineColor = info.color
                 end
