@@ -5828,6 +5828,60 @@ do
         return nil
     end
 
+    -- Deteksi mode mining crystal (setelah pickup)
+    -- Crystal yang sedang di-mine punya attribute MinedHP
+    local miningCheckClock = 0
+    local isMiningCrystal = false
+    local MINING_CHECK_GAP = 0.15
+    local MINING_RANGE = 25
+
+    local miningParams = OverlapParams.new()
+    miningParams.FilterType = Enum.RaycastFilterType.Exclude
+    pcall(function()
+        miningParams.MaxParts = 80
+        miningParams.RespectCanCollide = false
+    end)
+
+    local function refreshMiningState(root)
+        local now = os.clock()
+        if now - miningCheckClock < MINING_CHECK_GAP then
+            return isMiningCrystal
+        end
+        miningCheckClock = now
+
+        miningParams.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
+
+        local ok, hits = pcall(function()
+            return Workspace:GetPartBoundsInRadius(root.Position, MINING_RANGE, miningParams)
+        end)
+
+        if not ok or not hits then
+            isMiningCrystal = false
+            return false
+        end
+
+        for _, part in ipairs(hits) do
+            if part and part.Parent then
+                local hp = getAttr(part, "MinedHP")
+                if hp == nil and part.Parent then
+                    hp = getAttr(part.Parent, "MinedHP")
+                end
+
+                -- Ada MinedHP = crystal sedang dalam mode mining
+                if hp ~= nil then
+                    local num = tonumber(hp)
+                    if num == nil or num > 0 then
+                        isMiningCrystal = true
+                        return true
+                    end
+                end
+            end
+        end
+
+        isMiningCrystal = false
+        return false
+    end
+
     local function fastDigStep(deltaTime)
         if not S.fastDigActive then
             return
@@ -5843,6 +5897,17 @@ do
             return
         end
 
+        local root = getRoot()
+        local camera = Workspace.CurrentCamera
+        if not root or not camera then
+            return
+        end
+
+        -- Pause Fast Dig saat sedang mining / pickup crystal
+        if refreshMiningState(root) then
+            return
+        end
+
         -- Same speed formula used by Money Farm / Auto Mine
         local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
         local swingNeed = math.max(0.02, baseGap * 0.4)
@@ -5855,13 +5920,6 @@ do
         local swings = math.min(math.floor(swingClock / swingNeed), 6)
         swingClock = swingClock - swings * swingNeed
 
-        local root = getRoot()
-        local camera = Workspace.CurrentCamera
-        if not root or not camera then
-            return
-        end
-
-        -- Aim where the player is looking
         local origin = camera.CFrame.Position
         local direction = camera.CFrame.LookVector
         local aim = origin + direction * 15
@@ -5870,7 +5928,6 @@ do
         for _ = 1, swings do
             pcall(function()
                 event:FireServer(name, aim)
-                -- slight downward burst like auto farm
                 event:FireServer(name, aim - Vector3.new(0, 1.2, 0))
                 event:FireServer(name, aim - Vector3.new(0, 2.4, 0))
             end)
@@ -5889,12 +5946,12 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Digs at the same speed as Auto Mine / Auto Boulders while you hold a pickaxe. Aim with camera.",
+            Desc = "Digs at Auto Mine speed while holding a pickaxe. Auto pauses while mining/picking up crystals, resumes after.",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Enable fast digging (uses Auto Mine dig speed)",
+            Desc = "Enable fast dig (pauses during crystal mining mode)",
             Value = false,
             Callback = setFastDig,
         })
