@@ -277,6 +277,7 @@ local S = {
     instantPromptActive = false,
     instantPatched      = {},
     instantAccumulator  = math.huge,
+    fastDigActive       = false,
     StatsLabel          = nil,
     BackpackLabel       = nil,
 }
@@ -834,7 +835,7 @@ end
 local function applyExtra(entry, distanceText)
     entry.distanceText = distanceText
     entry.extra.Text = string.format(
-        '<font color="#%s">%s</font>  \u{2022}  <font color="#%s">%s</font>',
+        '<font color="#%s">%s</font> \u{2022} <font color="#%s">%s</font>',
         COLORS.hexDistance,
         distanceText,
         COLORS.hexLuck,
@@ -864,7 +865,7 @@ local function applyDetails(inst, entry, origin)
 
     entry.rarity.Text = title
     entry.rarity.TextColor3 = color
-    entry.info.Text = string.format("%s  \u{2022}  %s", money, weight)
+    entry.info.Text = string.format("%s \u{2022} %s", money, weight)
 
     local distanceText = "--"
     if origin then
@@ -1247,7 +1248,7 @@ end
 local espConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.statsDirty and S.StatsLabel then
         S.statsDirty = false
-        S.StatsLabel:SetText(string.format("Tracking: %d  |  Shown: %d", S.registryCount, S.espCount))
+        S.StatsLabel:SetText(string.format("Tracking: %d | Shown: %d", S.registryCount, S.espCount))
     end
 
     if not trackingEnabled() then
@@ -2706,10 +2707,10 @@ do
 
                 scaleCard(entry)
                 setLine(entry, 1, string.format("[%s] %s", info.rarity, kind))
-                setLine(entry, 2, string.format("%s  \u{2022}  %s crystals", info.pickaxe, info.crystals))
+                setLine(entry, 2, string.format("%s \u{2022} %s crystals", info.pickaxe, info.crystals))
 
                 local distance = origin and formatDistance((anchor.Position - origin).Magnitude) or "--"
-                setLine(entry, 3, string.format("%s  \u{2022}  %s", info.runes, distance))
+                setLine(entry, 3, string.format("%s \u{2022} %s", info.runes, distance))
             end)
 
             local stale
@@ -2791,7 +2792,7 @@ do
 
             for _, kind in ipairs({ "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite" }) do
                 local info = BOULDER_INFO[kind]
-                list[#list + 1] = string.format("%s  \u{2022}  %s", kind, info.pickaxe)
+                list[#list + 1] = string.format("%s \u{2022} %s", kind, info.pickaxe)
             end
 
             return list
@@ -3431,7 +3432,7 @@ do
 
         S.StatsLabel = CrystalBox:Paragraph({
             Title = "Stats",
-            Desc = "Tracking: 0  |  Shown: 0",
+            Desc = "Tracking: 0 | Shown: 0",
         })
 
         S.StatsLabel.SetText = function(self, text)
@@ -3964,21 +3965,21 @@ do
 
                     if choice then
                         visited[choice] = true
-                        note(string.format("try %d  %s", round, string.sub(choice, 1, 8)))
+                        note(string.format("try %d %s", round, string.sub(choice, 1, 8)))
 
                         local sent, err = pcall(function()
                             TeleportService:TeleportToPlaceInstance(PLACE, choice, LocalPlayer)
                         end)
 
                         if not sent then
-                            note("blocked  " .. tostring(err))
+                            note("blocked " .. tostring(err))
                         end
 
                         if #pool <= REFILL_MARK then
                             task.spawn(refill)
                         end
                     else
-                        note(string.format("no servers  http %d", lastCode))
+                        note(string.format("no servers http %d", lastCode))
                     end
 
                     task.wait(RETRY_STEP)
@@ -4906,7 +4907,7 @@ do
                         end
                     end
 
-                    statusText = string.format("Mining %s  %.0f hp", kind, hp)
+                    statusText = string.format("Mining %s %.0f hp", kind, hp)
                     return
                 end
 
@@ -4936,7 +4937,7 @@ do
                 Mountain.grabNear(RUNE_SWEEP)
 
                 if now < lootUntil then
-                    statusText = string.format("Looting runes  %.1fs", lootUntil - now)
+                    statusText = string.format("Looting runes %.1fs", lootUntil - now)
                     return
                 end
 
@@ -5808,6 +5809,107 @@ do
     install()
 end
 
+-- ===== FAST DIG =====
+-- Uses the same dig speed as Auto Mine / Auto Boulders (Farm.swingGap * 0.4)
+local fastDigConn
+
+do
+    local swingClock = 0
+
+    local function getHeldPick()
+        local char = LocalPlayer.Character
+        if not char then
+            return nil
+        end
+        local tool = char:FindFirstChildOfClass("Tool")
+        if tool and (getAttr(tool, "IsPickaxe") == true or getAttr(tool, "DigPower") ~= nil) then
+            return tool
+        end
+        return nil
+    end
+
+    local function fastDigStep(deltaTime)
+        if not S.fastDigActive then
+            return
+        end
+
+        local pick = getHeldPick()
+        if not pick then
+            return
+        end
+
+        local event = Farm and Farm.digEvent and Farm.digEvent()
+        if not event then
+            return
+        end
+
+        -- Same speed formula used by Money Farm / Auto Mine
+        local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
+        local swingNeed = math.max(0.02, baseGap * 0.4)
+
+        swingClock = swingClock + deltaTime
+        if swingClock < swingNeed then
+            return
+        end
+
+        local swings = math.min(math.floor(swingClock / swingNeed), 6)
+        swingClock = swingClock - swings * swingNeed
+
+        local root = getRoot()
+        local camera = Workspace.CurrentCamera
+        if not root or not camera then
+            return
+        end
+
+        -- Aim where the player is looking
+        local origin = camera.CFrame.Position
+        local direction = camera.CFrame.LookVector
+        local aim = origin + direction * 15
+
+        local name = pick.Name
+        for _ = 1, swings do
+            pcall(function()
+                event:FireServer(name, aim)
+                -- slight downward burst like auto farm
+                event:FireServer(name, aim - Vector3.new(0, 1.2, 0))
+                event:FireServer(name, aim - Vector3.new(0, 2.4, 0))
+            end)
+        end
+    end
+
+    local function setFastDig(value)
+        S.fastDigActive = value == true
+        if not S.fastDigActive then
+            swingClock = 0
+        end
+    end
+
+    local function install()
+        local FastDigBox = Tabs.farming:Section({ Title = "Fast Dig", Icon = "zap", Opened = true })
+
+        FastDigBox:Paragraph({
+            Title = "Fast Dig",
+            Desc = "Digs at the same speed as Auto Mine / Auto Boulders while you hold a pickaxe. Aim with camera.",
+        })
+
+        FastDigBox:Toggle({
+            Title = "Fast Dig",
+            Desc = "Enable fast digging (uses Auto Mine dig speed)",
+            Value = false,
+            Callback = setFastDig,
+        })
+    end
+
+    install()
+
+    fastDigConn = RunService.Heartbeat:Connect(function(deltaTime)
+        local ok, err = pcall(fastDigStep, deltaTime)
+        if not ok then
+            reportError("fastDig", err)
+        end
+    end)
+end
+
 do
     local function install()
         local SettingsBox = Tabs.settings:Section({ Title = "Settings", Icon = "sliders-horizontal", Opened = true })
@@ -5868,6 +5970,8 @@ do
                     Money.stop()
                 end
 
+                S.fastDigActive = false
+
                 for _, connection in ipairs({
                     aimInputConn,
                     espConn,
@@ -5877,6 +5981,7 @@ do
                     mountainConn,
                     farmConn,
                     moneyConn,
+                    fastDigConn,
                 }) do
                     if connection then
                         connection:Disconnect()
