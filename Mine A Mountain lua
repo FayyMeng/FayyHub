@@ -6458,6 +6458,38 @@ do
             return list
         end
 
+        local function findRuneToolByName(runeName)
+            local function scan(container)
+                if not container then
+                    return nil
+                end
+                for _, child in ipairs(container:GetChildren()) do
+                    if child:IsA("Tool") and child.Name == runeName then
+                        return child
+                    end
+                end
+                return nil
+            end
+            return scan(LocalPlayer.Character) or scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+        end
+
+        local function parseAmount(value)
+            if type(value) == "number" then
+                return math.max(1, math.floor(value))
+            end
+            if type(value) == "string" then
+                local n = tonumber(value:match("[%d%.]+"))
+                if n and n > 0 then
+                    return math.floor(n)
+                end
+            end
+            if type(value) == "table" then
+                local v = value.Text or value.Value or value[1] or value.Input
+                return parseAmount(v)
+            end
+            return math.max(1, math.floor(tonumber(placeAmount) or 1))
+        end
+
         local function placeSelectedRunes()
             if next(selectedRunes) == nil then
                 WindUI:Notify({
@@ -6468,6 +6500,9 @@ do
                 })
                 return
             end
+
+            local amount = parseAmount(placeAmount)
+            placeAmount = amount
 
             local plot = getOwnedPlotModel()
             if not plot then
@@ -6502,39 +6537,17 @@ do
                 return
             end
 
-            local runes = collectRuneTools(true, placeAmount)
-            if #runes == 0 then
-                WindUI:Notify({
-                    Title = "Place Runes",
-                    Content = "No selected runes in inventory",
-                    Duration = 3,
-                    Icon = "alert-circle",
-                })
-                return
+            local names = {}
+            for name in pairs(selectedRunes) do
+                names[#names + 1] = name
             end
+            table.sort(names)
 
             local cf = region.CFrame
             local size = region.Size
             local half = size * 0.5
             local padX = math.max(half.X - 1.5, 1)
             local padZ = math.max(half.Z - 1.5, 1)
-            local runeHalfY = 1
-
-            local function worldToLocal(world)
-                local p = cf:PointToObjectSpace(world)
-                return Vector3.new(p.X, p.Y + half.Y, p.Z)
-            end
-
-            local function isInBoundsLocal(localPos, objectSize)
-                local oh = (objectSize or Vector3.new(2, 2, 2)) * 0.5
-                if math.abs(localPos.X) > half.X then
-                    return false
-                end
-                if math.abs(localPos.Z) > half.Z then
-                    return false
-                end
-                return (localPos.Y - oh.Y) >= -0.01
-            end
 
             local function placementWorldPos(objectSize)
                 local oh = (objectSize or Vector3.new(2, 2, 2)) * 0.5
@@ -6542,11 +6555,8 @@ do
                     local lx = (math.random() - 0.5) * 2 * padX
                     local lz = (math.random() - 0.5) * 2 * padZ
                     local ly = oh.Y + 0.05
-                    local localPos = Vector3.new(lx, ly, lz)
-                    if isInBoundsLocal(localPos, objectSize) then
-                        local bottomLocal = Vector3.new(lx, ly - half.Y, lz)
-                        return cf:PointToWorldSpace(bottomLocal)
-                    end
+                    local bottomLocal = Vector3.new(lx, ly - half.Y, lz)
+                    return cf:PointToWorldSpace(bottomLocal)
                 end
                 local bottomLocal = Vector3.new(0, oh.Y + 0.05 - half.Y, 0)
                 return cf:PointToWorldSpace(bottomLocal)
@@ -6566,45 +6576,59 @@ do
                 return Vector3.new(2, 2, 2)
             end
 
+            if S._placingRunes then
+                return
+            end
+            S._placingRunes = true
+
             task.spawn(function()
                 local placed = 0
                 local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
 
-                for _, tool in ipairs(runes) do
-                    if not tool.Parent then
-                        continue
-                    end
+                for _, runeName in ipairs(names) do
+                    for i = 1, amount do
+                        local tool = findRuneToolByName(runeName)
+                        if not tool then
+                            break
+                        end
 
-                    local size = toolSize(tool)
-                    local pos = placementWorldPos(size)
-                    local yaw = math.random() * math.pi * 2
+                        if humanoid and tool.Parent ~= LocalPlayer.Character then
+                            pcall(function()
+                                humanoid:EquipTool(tool)
+                            end)
+                            task.wait(0.2)
+                        end
 
-                    if humanoid and tool.Parent ~= LocalPlayer.Character then
-                        pcall(function()
-                            humanoid:EquipTool(tool)
+                        local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(runeName)
+                        held = held or tool
+                        if not held or not held.Parent then
+                            break
+                        end
+
+                        local pos = placementWorldPos(toolSize(held))
+                        local yaw = math.random() * math.pi * 2
+
+                        local ok = pcall(function()
+                            remote:FireServer(held.Name, pos, yaw, held)
                         end)
-                        task.wait(0.15)
-                    end
 
-                    local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name) or tool
+                        if ok then
+                            placed += 1
+                        end
 
-                    local ok = pcall(function()
-                        remote:FireServer(held.Name, pos, yaw, held)
-                    end)
-                    if ok then
-                        placed += 1
+                        -- 1.5s gap between each place remote
+                        task.wait(1.5)
                     end
-                    task.wait(0.4)
                 end
 
-                if placed > 0 then
-                    WindUI:Notify({
-                        Title = "Place Runes",
-                        Content = string.format("Placed %d", placed),
-                        Duration = 2,
-                        Icon = "check",
-                    })
-                end
+                S._placingRunes = false
+
+                WindUI:Notify({
+                    Title = "Place Runes",
+                    Content = string.format("Placed %d rune(s)", placed),
+                    Duration = 3,
+                    Icon = placed > 0 and "check" or "alert-circle",
+                })
             end)
         end
 
@@ -6869,9 +6893,12 @@ do
             Value = "1",
             Placeholder = "1",
             Callback = function(value)
-                local n = tonumber(value)
+                if type(value) == "table" then
+                    value = value.Text or value.Value or value[1] or value.Input or "1"
+                end
+                local n = tonumber(tostring(value):match("[%d%.]+"))
                 if n and n > 0 then
-                    placeAmount = math.floor(n)
+                    placeAmount = math.max(1, math.floor(n))
                 else
                     placeAmount = 1
                 end
