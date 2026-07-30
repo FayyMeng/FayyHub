@@ -103,18 +103,18 @@ local HoldComplete = findRemote("CrystalHoldComplete")
 local ToggleFavorite = findRemote("ToggleFavorite")
 
 local ESP = {
-    font = Enum.Font.GothamMedium,
+    font = Enum.Font.GothamBold,
     sweep = 0.7,
     budget = 0.004,
-    offset = Vector3.new(0, 3.2, 0),
-    width = 260,
-    height = 70,
-    text = 15,
+    offset = Vector3.new(0, 3.4, 0),
+    width = 220,
+    height = 50,
+    text = 18,
     ttl = 5,
 }
 
 pcall(function()
-    ESP.font = Enum.Font.Gotham
+    ESP.font = Enum.Font.GothamBold
 end)
 
 local PLAYER = {
@@ -286,6 +286,7 @@ local S = {
     instantAccumulator  = math.huge,
     fastDigActive       = false,
     digSpeedMult        = 0.4,
+    farmMode            = "Tween",
     wasAtBase           = false,
     miningBoulder       = nil,
     pickupValueActive   = false,
@@ -744,8 +745,8 @@ local function newLabel(name, parent, order, total, color, rich, maxText)
     label.Font = ESP.font
     label.TextScaled = true
     label.TextTransparency = 0
-    label.TextStrokeTransparency = 0.35
-    label.TextStrokeColor3 = Color3.fromRGB(12, 12, 16)
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     label.TextColor3 = color
     label.RichText = rich == true
     label.Text = ""
@@ -870,24 +871,20 @@ local function buildTitle(inst)
 end
 
 local function applyDetails(inst, entry, origin)
-    local title = buildTitle(inst)
-    local color = crystalColor(inst)
     local money = formatShort(crystalValue(inst), "$")
     local weight = formatWeight(crystalWeight(inst))
 
-    local luckOk, luck = pcall(crystalLuck, inst)
-    entry.luckText = formatLuck(luckOk and luck or 0)
-
-    entry.rarity.Text = title
-    entry.rarity.TextColor3 = color
-    entry.info.Text = string.format("%s \u{2022} %s", money, weight)
-
-    local distanceText = "--"
+    entry.rarity.Text = money
+    entry.rarity.TextColor3 = COLORS.money
+    entry.info.Text = weight
+    entry.info.TextColor3 = COLORS.extra
+    entry.extra.Text = ""
+    entry.luckText = ""
     if origin then
-        distanceText = formatDistance((inst.Position - origin).Magnitude)
+        entry.distanceText = formatDistance((inst.Position - origin).Magnitude)
+    else
+        entry.distanceText = "--"
     end
-
-    applyExtra(entry, distanceText)
 end
 
 local function crystalSignature(inst)
@@ -1122,7 +1119,7 @@ local function requestRefresh()
 end
 
 local function luckEspGuiSize()
-    return UDim2.fromOffset(ESP.width * S.espScale, math.floor(ESP.height * S.espScale * 0.45))
+    return UDim2.fromOffset(ESP.width * S.espScale, math.floor(ESP.height * S.espScale * 0.85))
 end
 
 local function createLuckEntry(inst)
@@ -1138,13 +1135,17 @@ local function createLuckEntry(inst)
     billboard.Parent = EspHolder
 
     local textSize = crystalTextSize()
-    local label, constraint = newLabel("Luck", billboard, 0, 1, Color3.fromRGB(255, 196, 0), false, textSize)
+    local label, constraint = newLabel("Luck", billboard, 0, 2, Color3.fromRGB(255, 196, 0), false, textSize)
+    local distLabel, distConstraint = newLabel("Distance", billboard, 1, 2, COLORS.extra, false, textSize)
 
     return {
         gui = billboard,
         label = label,
+        distLabel = distLabel,
         constraint = constraint,
+        constraints = { constraint, distConstraint },
         luckText = "",
+        distanceText = "",
     }
 end
 
@@ -1190,11 +1191,34 @@ local function syncLuckCrystal(inst)
 
     local ok, luck = pcall(crystalLuck, inst)
     local luckText = formatLuck(ok and luck or 0)
+    local root = getRoot()
+    local distanceText = "--"
+    if root then
+        distanceText = formatDistance((inst.Position - root.Position).Magnitude)
+    end
+
+    local textSize = crystalTextSize()
+    entry.gui.Size = luckEspGuiSize()
+    if entry.constraint then
+        entry.constraint.MaxTextSize = textSize
+    end
+    if entry.constraints then
+        for _, c in ipairs(entry.constraints) do
+            c.MaxTextSize = textSize
+        end
+    end
+
     if entry.luckText ~= luckText then
         entry.luckText = luckText
         entry.label.Text = luckText
-        entry.gui.Size = luckEspGuiSize()
-        entry.constraint.MaxTextSize = crystalTextSize()
+        entry.label.TextColor3 = Color3.fromRGB(255, 196, 0)
+    end
+    if entry.distanceText ~= distanceText then
+        entry.distanceText = distanceText
+        if entry.distLabel then
+            entry.distLabel.Text = distanceText
+            entry.distLabel.TextColor3 = COLORS.extra
+        end
     end
 end
 
@@ -4879,7 +4903,46 @@ do
         end
 
         local function hold(goal, aim)
+            if S.farmMode == "Legit" then
+                return false
+            end
             return Move.glide(goal, aim)
+        end
+
+        local function legitWalkTo(goalPos)
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local root = getRoot()
+            if not (humanoid and root and goalPos) then
+                return false
+            end
+
+            -- Natural Roblox walk toward target (no noclip / no fly)
+            pcall(function()
+                humanoid.PlatformStand = false
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end)
+
+            -- Keep walk speed natural
+            if humanoid.WalkSpeed < 12 then
+                humanoid.WalkSpeed = 16
+            end
+
+            local flat = Vector3.new(goalPos.X, root.Position.Y, goalPos.Z)
+            pcall(function()
+                humanoid:MoveTo(flat)
+            end)
+
+            -- Soft face direction
+            local dir = flat - root.Position
+            if dir.Magnitude > 0.5 then
+                local look = Vector3.new(dir.X, 0, dir.Z).Unit
+                pcall(function()
+                    root.CFrame = CFrame.new(root.Position, root.Position + look)
+                end)
+            end
+
+            return true
         end
 
         local function restart()
@@ -5062,6 +5125,7 @@ do
             Move.setFly(false)
             Move.setNoclip(false)
             Mountain.setAutoGrab(false)
+            -- leave Fast Dig as user set it; do not force off
         end
 
         local function step(deltaTime)
@@ -5179,8 +5243,18 @@ do
                 end
 
                 if spotFrame then
-                    Move.setNoclip(true)
-                    hold(spotFrame, center)
+                    if S.farmMode == "Legit" then
+                        Move.setNoclip(false)
+                        Move.setFly(false)
+                        Move.glideStop()
+                        local goalPos = spotFrame.Position
+                        legitWalkTo(goalPos)
+                        statusText = string.format("Legit walk %s", kind)
+                    else
+                        Move.setNoclip(true)
+                        hold(spotFrame, center)
+                        statusText = string.format("Mining %s", kind)
+                    end
                 end
 
                 if heldPick == nil or heldPick.Parent ~= LocalPlayer.Character then
@@ -5366,6 +5440,23 @@ do
         end
 
         local FarmBox = Tabs.farm:Section({ Title = "Boulder Farm", Icon = "bot", Opened = true })
+
+        FarmBox:Dropdown({
+            Title = "Farm Mode",
+            Values = { "Tween", "Legit" },
+            Value = "Tween",
+            Callback = function(option)
+                if type(option) == "table" then
+                    option = option[1] or option.Value or option.Name or "Tween"
+                end
+                option = tostring(option or "Tween")
+                if option ~= "Legit" then
+                    option = "Tween"
+                end
+                S.farmMode = option
+            end
+        })
+
 
         FarmBox:Paragraph({
             Title = "Auto Boulders",
@@ -6218,7 +6309,7 @@ do
     end
 
     local function fastDigStep(deltaTime)
-        if not S.fastDigActive then
+        if not S.fastDigActive and not (S.farmMode == "Legit" and S.miningBoulder) then
             return
         end
 
