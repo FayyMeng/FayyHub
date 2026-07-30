@@ -287,6 +287,10 @@ local S = {
     fastDigActive       = false,
     digSpeedMult        = 0.4,
     farmMode            = "Tween",
+    safeMode            = false,
+    safeReturnPos       = nil,
+    safeFleeing         = false,
+    farmActive          = false,
     wasAtBase           = false,
     miningBoulder       = nil,
     pickupValueActive   = false,
@@ -3752,7 +3756,7 @@ end
 
 do
     local function install()
-        local CrystalBox = Tabs.esp:Section({ Title = "Crystal ESP", Icon = "gem", Opened = true })
+        local CrystalBox = Tabs.esp
 
         CrystalBox:Toggle({
             Title = "Crystal ESP",
@@ -3797,7 +3801,7 @@ do
             self.Desc = text
         end
 
-        local LuckBox = Tabs.esp:Section({ Title = "ESP Luck", Icon = "sparkles", Opened = true })
+        local LuckBox = Tabs.esp
 
         LuckBox:Paragraph({
             Title = "Luck ESP",
@@ -3841,7 +3845,7 @@ end
 
 do
     local function install()
-        local PlayerBox = Tabs.esp:Section({ Title = "Player ESP", Icon = "users", Opened = true })
+        local PlayerBox = Tabs.esp
 
         PlayerBox:Toggle({
             Title = "Player ESP",
@@ -3861,7 +3865,7 @@ end
 
 do
     local function install()
-        local BoulderBox = Tabs.esp:Section({ Title = "Boulder ESP", Icon = "mountain", Opened = true })
+        local BoulderBox = Tabs.esp
 
         BoulderBox:Toggle({
             Title = "Boulder ESP",
@@ -3882,7 +3886,7 @@ end
 
 do
     local function install()
-        local TopBox = Tabs.teleports:Section({ Title = "Top Crystals", Icon = "trophy", Opened = true })
+        local TopBox = Tabs.teleports
 
         local function fmtValue(_, score) return formatShort(score, "$") end
         local function fmtLuck(_, score) return formatLuck(score) end
@@ -3921,7 +3925,7 @@ end
 
 do
     local function install()
-        local PickupBox = Tabs.farm:Section({ Title = "Pickup", Icon = "pickaxe", Opened = true })
+        local PickupBox = Tabs.farm
 
         PickupBox:Toggle({
             Title = "Auto Pickup",
@@ -4001,7 +4005,7 @@ end
 
 do
     local function install()
-        local MoveBox = Tabs.movement:Section({ Title = "Movement", Icon = "zap", Opened = true })
+        local MoveBox = Tabs.movement
 
         MoveBox:Toggle({
             Title = "Speed Boost",
@@ -4037,6 +4041,8 @@ do
             },
             Callback = Move.setFlySpeed
         })
+
+
     end
 
     install()
@@ -4098,7 +4104,7 @@ do
             aimKeybind = key
         end
 
-        local TeleportBox = Tabs.teleports:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
+        local TeleportBox = Tabs.teleports
 
         TeleportBox:Button({
             Title = "TP Home",
@@ -4379,6 +4385,95 @@ do
 
     install()
 end
+
+
+local function nearestOtherPlayer(origin)
+    local best, bestDist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local d = (hrp.Position - origin).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = hrp
+                end
+            end
+        end
+    end
+    return best, bestDist
+end
+
+local function safeModeStep()
+    if not S.safeMode then
+        if S.safeFleeing then
+            S.safeFleeing = false
+            S.safeReturnPos = nil
+        end
+        return false
+    end
+
+    -- Only while auto farm / money / mining boulder
+    local farming = S.farmActive or S.miningBoulder ~= nil
+    if not farming and not S.safeFleeing then
+        return false
+    end
+
+    local root = getRoot()
+    if not root then
+        return false
+    end
+
+    local threat, dist = nearestOtherPlayer(root.Position)
+    local SAFE_RADIUS = 200
+    local FLEE_DIST = 1000
+
+    if S.safeFleeing then
+        -- Return when clear
+        if not threat or dist >= SAFE_RADIUS + 50 then
+            local ret = S.safeReturnPos
+            S.safeFleeing = false
+            S.safeReturnPos = nil
+            if ret then
+                if Move and Move.glide then
+                    pcall(Move.glide, CFrame.new(ret), ret)
+                    task.delay(2.5, function()
+                        if Move and Move.glideStop then
+                            pcall(Move.glideStop)
+                        end
+                    end)
+                else
+                    pcall(teleportTo, ret)
+                end
+            end
+            return false
+        end
+        return true -- still fleeing, pause farm
+    end
+
+    if threat and dist <= SAFE_RADIUS then
+        S.safeReturnPos = root.Position
+        S.safeFleeing = true
+        -- Flee away from threat
+        local away = root.Position - threat.Position
+        if away.Magnitude < 1 then
+            away = Vector3.new(1, 0, 0)
+        end
+        away = Vector3.new(away.X, 0, away.Z).Unit
+        local fleePos = root.Position + away * FLEE_DIST + Vector3.new(0, 40, 0)
+        if Move and Move.glide then
+            pcall(Move.setNoclip, true)
+            pcall(Move.glide, CFrame.new(fleePos), fleePos)
+        else
+            pcall(teleportTo, fleePos)
+        end
+        return true
+    end
+
+    return false
+end
+
 
 local Farm = {}
 local farmConn
@@ -4909,6 +5004,44 @@ do
             return Move.glide(goal, aim)
         end
 
+        local function clearWalkBlockers(character, root, humanoid)
+            -- Remove any leftover movers that freeze the character
+            for _, inst in ipairs(root:GetChildren()) do
+                if inst:IsA("AlignPosition") or inst:IsA("AlignOrientation")
+                    or inst:IsA("BodyVelocity") or inst:IsA("BodyPosition")
+                    or inst:IsA("BodyGyro") or inst:IsA("LinearVelocity")
+                    or inst:IsA("AngularVelocity") or inst:IsA("VectorForce") then
+                    pcall(function()
+                        inst:Destroy()
+                    end)
+                end
+            end
+            for _, inst in ipairs(character:GetDescendants()) do
+                if inst:IsA("AlignPosition") or inst:IsA("BodyVelocity") or inst:IsA("BodyPosition") then
+                    if inst.Name:find("FayyMeng", 1, true) then
+                        pcall(function()
+                            inst:Destroy()
+                        end)
+                    end
+                end
+            end
+            pcall(function()
+                root.Anchored = false
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+            end)
+            pcall(function()
+                humanoid.PlatformStand = false
+                humanoid.AutoRotate = true
+                humanoid.Sit = false
+                if humanoid.WalkSpeed < 14 then
+                    humanoid.WalkSpeed = 16
+                end
+                if humanoid.JumpPower < 30 then
+                    humanoid.JumpPower = 50
+                end
+            end)
+        end
+
         local function legitWalkTo(goalPos)
             local character = LocalPlayer.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -4917,30 +5050,30 @@ do
                 return false
             end
 
-            -- Natural Roblox walk toward target (no noclip / no fly)
-            pcall(function()
-                humanoid.PlatformStand = false
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end)
-
-            -- Keep walk speed natural
-            if humanoid.WalkSpeed < 12 then
-                humanoid.WalkSpeed = 16
-            end
+            clearWalkBlockers(character, root, humanoid)
 
             local flat = Vector3.new(goalPos.X, root.Position.Y, goalPos.Z)
-            pcall(function()
-                humanoid:MoveTo(flat)
-            end)
+            local delta = flat - root.Position
+            local dist = delta.Magnitude
 
-            -- Soft face direction
-            local dir = flat - root.Position
-            if dir.Magnitude > 0.5 then
-                local look = Vector3.new(dir.X, 0, dir.Z).Unit
+            if dist < 2.5 then
+                -- Arrived: stop move input
                 pcall(function()
-                    root.CFrame = CFrame.new(root.Position, root.Position + look)
+                    humanoid:Move(Vector3.zero, false)
                 end)
+                return true
             end
+
+            local dir = Vector3.new(delta.X, 0, delta.Z)
+            if dir.Magnitude < 0.05 then
+                return false
+            end
+            dir = dir.Unit
+
+            -- Continuous Move (works every Heartbeat, mobile + PC)
+            pcall(function()
+                humanoid:Move(dir, false)
+            end)
 
             return true
         end
@@ -5121,11 +5254,17 @@ do
             probeIndex = 0
             statusText = "Idle"
             S.miningBoulder = nil
+            S.farmActive = false
 
             Move.setFly(false)
             Move.setNoclip(false)
             Mountain.setAutoGrab(false)
-            -- leave Fast Dig as user set it; do not force off
+            pcall(function()
+                local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum:Move(Vector3.zero, false)
+                end
+            end)
         end
 
         local function step(deltaTime)
@@ -5136,6 +5275,11 @@ do
             end
 
             local now = os.clock()
+
+            if safeModeStep() then
+                statusText = "Safe Mode: avoiding player"
+                return
+            end
 
             if S.pickupValueActive or S.pickupLuckActive then
                 filterPickClock = (filterPickClock or 0) + deltaTime
@@ -5411,6 +5555,7 @@ do
             end
 
             active = true
+            S.farmActive = true
             phase = "scan"
             noTargetClock = 0
             waitUntil = 0
@@ -5439,7 +5584,7 @@ do
             Mountain.setAutoGrab(true)
         end
 
-        local FarmBox = Tabs.farm:Section({ Title = "Boulder Farm", Icon = "bot", Opened = true })
+        local FarmBox = Tabs.farm
 
         FarmBox:Dropdown({
             Title = "Farm Mode",
@@ -5919,6 +6064,7 @@ do
             sellUntil = 0
             heldPick = nil
             statusText = "Idle"
+            S.farmActive = false
 
             Move.setFly(false)
             Move.setNoclip(false)
@@ -5933,6 +6079,11 @@ do
             end
 
             local now = os.clock()
+
+            if safeModeStep() then
+                statusText = "Safe Mode: avoiding player"
+                return
+            end
 
             if not loaded then
                 local spot = mountainSpot()
@@ -6143,6 +6294,7 @@ do
             end
 
             active = true
+            S.farmActive = true
             target = nil
             columnY = nil
             columnDry = 0
@@ -6169,7 +6321,7 @@ do
             Mountain.setAutoGrab(true)
         end
 
-        local MoneyBox = Tabs.farm:Section({ Title = "Money Farm", Icon = "banknote", Opened = true })
+        local MoneyBox = Tabs.farm
 
         MoneyBox:Paragraph({
             Title = "Money Farming",
@@ -6398,7 +6550,7 @@ do
     end
 
     local function install()
-        local FastDigBox = Tabs.farm:Section({ Title = "Fast Dig", Icon = "zap", Opened = true })
+        local FastDigBox = Tabs.farm
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
@@ -6424,7 +6576,7 @@ end
 
 do
     local function install()
-        local PlotBox = Tabs.runes:Section({ Title = "Plot / Runes", Icon = "map-pin", Opened = true })
+        local PlotBox = Tabs.runes
 
         local RUNE_LIST = {
             "Luck Rune", "Haste Rune", "Storm Rune", "Weight Rune",
@@ -7119,7 +7271,7 @@ do
             end
         })
 
-        local ShopBox = Tabs.shop:Section({ Title = "Shops", Icon = "shopping-bag", Opened = true })
+        local ShopBox = Tabs.shop
 
         ShopBox:Button({
             Title = "Open Bomb Shop",
@@ -7183,7 +7335,24 @@ do
             end
         })
 
-        local SettingsBox = Tabs.settings:Section({ Title = "Settings", Icon = "sliders-horizontal", Opened = true })
+                local SettingsBox = Tabs.settings
+
+        SettingsBox:Dropdown({
+            Title = "Mode",
+            Values = { "Normal", "Safe Mode" },
+            Value = "Normal",
+            Callback = function(option)
+                if type(option) == "table" then
+                    option = option[1] or option.Value or "Normal"
+                end
+                option = tostring(option or "Normal")
+                S.safeMode = (option == "Safe Mode")
+                if not S.safeMode then
+                    S.safeFleeing = false
+                    S.safeReturnPos = nil
+                end
+            end
+        })
 
         SettingsBox:Button({
             Title = "Unload",
