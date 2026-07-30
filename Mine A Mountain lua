@@ -3740,7 +3740,6 @@ do
 
         CrystalBox:Toggle({
             Title = "Crystal ESP",
-            Desc = "Show crystal ESP",
             Value = false,
             Callback = function(value)
                 S.espActive = value
@@ -3753,7 +3752,6 @@ do
 
         CrystalBox:Paragraph({
             Title = "Min Value",
-            Desc = "Example: 500k, 2m, 1.5b. Empty shows everything",
         })
 
         local function setMinValue(text)
@@ -3769,7 +3767,6 @@ do
 
         CrystalBox:Input({
             Title = "Min Value",
-            Desc = "Hide crystals worth less than this",
             Value = "2m",
             Placeholder = "2m",
             Type = "Input",
@@ -3778,7 +3775,6 @@ do
 
         S.StatsLabel = CrystalBox:Paragraph({
             Title = "Stats",
-            Desc = "Tracking: 0 | Shown: 0",
         })
 
         S.StatsLabel.SetText = function(self, text)
@@ -3789,12 +3785,10 @@ do
 
         LuckBox:Paragraph({
             Title = "Luck ESP",
-            Desc = "Shows only luck value above crystals. Works independently from Crystal ESP — no need to enable Crystal ESP first.",
         })
 
         LuckBox:Toggle({
             Title = "Luck ESP",
-            Desc = "Display luck % on crystals (standalone)",
             Value = false,
             Callback = function(value)
                 S.luckEspActive = value
@@ -3810,7 +3804,6 @@ do
 
         LuckBox:Input({
             Title = "Min Luck %",
-            Desc = "Only show crystals with luck ≥ this value. 0 = show all. Example: 5 = +5%",
             Value = "0",
             Placeholder = "e.g. 5",
             Type = "Input",
@@ -3836,7 +3829,6 @@ do
 
         PlayerBox:Toggle({
             Title = "Player ESP",
-            Desc = "Show player ESP",
             Value = false,
             Callback = function(value)
                 S.playerEspActive = value
@@ -3857,7 +3849,6 @@ do
 
         BoulderBox:Toggle({
             Title = "Boulder ESP",
-            Desc = "Show boulder ESP",
             Value = false,
             Callback = Mountain.setBoulderEsp
         })
@@ -3889,7 +3880,6 @@ do
 
         local tpDropdown = TopBox:Dropdown({
             Title = "Teleport To",
-            Desc = "Select a crystal to teleport to",
             Values = {
                 "Top 1 Value",
                 "Top 1 Luck",
@@ -3919,7 +3909,6 @@ do
 
         PickupBox:Toggle({
             Title = "Auto Pickup",
-            Desc = "Automatically pickup crystals",
             Value = false,
             Callback = function(value)
                 S.autoPickupActive = value
@@ -3928,26 +3917,22 @@ do
 
         PickupBox:Toggle({
             Title = "Instant Prompt",
-            Desc = "Instant crystal pickup prompt",
             Value = false,
             Callback = setInstantPrompt
         })
 
         PickupBox:Toggle({
             Title = "Auto Rune Pickup",
-            Desc = "Automatically pickup runes",
             Value = false,
             Callback = Mountain.setAutoGrab
         })
 
         PickupBox:Paragraph({
             Title = "Pickup by Value / Luck",
-            Desc = "Only picks nearby crystals that meet the minimum value or luck. Works independently of plain Auto Pickup.",
         })
 
         PickupBox:Toggle({
             Title = "Auto Pickup by Value",
-            Desc = "Pickup nearby crystals with value >= Min Value",
             Value = false,
             Callback = function(value)
                 S.pickupValueActive = value
@@ -3956,7 +3941,6 @@ do
 
         PickupBox:Input({
             Title = "Min Pickup Value",
-            Desc = "Example: 500k, 1b, 2.5b",
             Value = "1b",
             Type = "Input",
             Callback = function(input)
@@ -3969,7 +3953,6 @@ do
 
         PickupBox:Toggle({
             Title = "Auto Pickup by Luck",
-            Desc = "Pickup nearby crystals with luck % >= Min Luck",
             Value = false,
             Callback = function(value)
                 S.pickupLuckActive = value
@@ -3978,7 +3961,6 @@ do
 
         PickupBox:Input({
             Title = "Min Pickup Luck (%)",
-            Desc = "Example: 1 = 1%, 50 = 50%",
             Value = "0",
             Type = "Input",
             Callback = function(input)
@@ -3991,7 +3973,6 @@ do
 
         S.BackpackLabel = PickupBox:Paragraph({
             Title = "Backpack",
-            Desc = "Bag 0.0 / 0.0 kg",
         })
 
         S.BackpackLabel.SetText = function(self, text)
@@ -4008,35 +3989,30 @@ do
 
         MoveBox:Toggle({
             Title = "Speed Boost",
-            Desc = "Increase movement speed",
             Value = false,
             Callback = setSpeedBoost
         })
 
         MoveBox:Toggle({
             Title = "Noclip",
-            Desc = "Walk through walls",
             Value = false,
             Callback = Move.setNoclip
         })
 
         MoveBox:Toggle({
             Title = "Inf Jump",
-            Desc = "Infinite jumps",
             Value = false,
             Callback = Move.setInfJump
         })
 
         MoveBox:Toggle({
             Title = "Fly",
-            Desc = "Enable flight",
             Value = false,
             Callback = Move.setFly
         })
 
         MoveBox:Slider({
             Title = "Fly Speed",
-            Desc = "Adjust flight speed",
             Step = 1,
             Value = {
                 Min = 20,
@@ -4110,7 +4086,6 @@ do
 
         TeleportBox:Toggle({
             Title = "Aim Teleport",
-            Desc = "Aim at a crystal then press key to teleport",
             Value = false,
             Callback = function(value)
                 S.aimTpEnabled = value
@@ -4119,7 +4094,6 @@ do
 
         TeleportBox:Keybind({
             Title = "Aim Teleport Key",
-            Desc = "Key to teleport to aimed crystal",
             Value = "F",
             Callback = function(v)
                 updateKeybind(v)
@@ -4128,7 +4102,6 @@ do
 
         TeleportBox:Button({
             Title = "TP Home",
-            Desc = "Teleport to your home base",
             Callback = function()
                 fireRemote(GoHome, "home")
             end
@@ -4136,7 +4109,6 @@ do
 
         TeleportBox:Button({
             Title = "Sell All",
-            Desc = "Sell all crystals in backpack",
             Callback = function()
                 if doSell() then
                 end
@@ -5421,12 +5393,10 @@ do
 
         FarmBox:Paragraph({
             Title = "Auto Boulders",
-            Desc = "Select targets then enable. Defaults to all types if none selected.",
         })
 
         FarmBox:Dropdown({
             Title = "Targets",
-            Desc = "Select boulder types to farm",
             Values = FARM_KINDS,
             Multi = true,
             AllowNone = true,
@@ -5435,14 +5405,12 @@ do
 
         FarmBox:Toggle({
             Title = "Auto Farm",
-            Desc = "Automatically farm boulders",
             Value = false,
             Callback = setActive
         })
 
         local StatusLabel = FarmBox:Paragraph({
             Title = "Status",
-            Desc = "Idle",
         })
 
         local labelClock = 0
@@ -6138,19 +6106,16 @@ do
 
         MoneyBox:Paragraph({
             Title = "Money Farming",
-            Desc = "Loads the mountain and digs from the peak downwards",
         })
 
         MoneyBox:Toggle({
             Title = "Auto Farm",
-            Desc = "Automatically farm money",
             Value = false,
             Callback = setActive
         })
 
         MoneyBox:Toggle({
             Title = "Auto Sell At 50%",
-            Desc = "Sell when backpack is 50% full",
             Value = false,
             Callback = function(value)
                 autoSell = value
@@ -6159,7 +6124,6 @@ do
 
         local StatusLabel = MoneyBox:Paragraph({
             Title = "Status",
-            Desc = "Idle",
         })
 
         local labelClock = 0
@@ -6371,12 +6335,10 @@ do
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
-            Desc = "Make u dig faster",
         })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
-            Desc = "Make u dig faster",
             Value = false,
             Callback = setFastDig,
         })
@@ -6385,12 +6347,10 @@ do
 
         DigBox:Paragraph({
             Title = "Dig Control",
-            Desc = "Speed multiplier 0.4 = Auto Mine. Each dig hits front/back/left/right/up (not down).",
         })
 
         DigBox:Slider({
             Title = "Dig Speed",
-            Desc = "Lower = faster dig (0.1 fastest, 1.0 slowest). Default 0.4",
             Step = 0.05,
             Value = {
                 Min = 0.1,
@@ -6424,7 +6384,7 @@ do
             "Excavator Rune", "Colossus Rune",
         }
 
-        local selectedRunes = {} -- [runeName] = true
+        local selectedRunes = {}
         local placeAmount = 1
 
         local function getOwnedPlotModel()
@@ -6883,12 +6843,10 @@ do
 
         PlotBox:Paragraph({
             Title = "Place & Pickup Runes",
-            Desc = "Detects your plot via Slots.[Username]. Select runes, set amount, place or pickup.",
         })
 
         PlotBox:Dropdown({
             Title = "Select Runes to Place",
-            Desc = "Choose which runes to place",
             Values = RUNE_LIST,
             Multi = true,
             AllowNone = true,
@@ -6908,7 +6866,6 @@ do
 
         PlotBox:Input({
             Title = "Amount Per Rune",
-            Desc = "How many of each selected rune to place",
             Value = "1",
             Placeholder = "1",
             Callback = function(value)
@@ -6923,19 +6880,16 @@ do
 
         PlotBox:Button({
             Title = "Place Selected Runes",
-            Desc = "Place selected runes (max amount per type)",
             Callback = placeSelectedRunes,
         })
 
         PlotBox:Button({
             Title = "Pickup All Placed Runes",
-            Desc = "TP to each placed rune, pickup, return home",
             Callback = pickupAllPlacedRunes,
         })
 
         PlotBox:Button({
             Title = "TP To Own Plot",
-            Desc = "Teleport to your plot Sign",
             Callback = function()
                 local plot = getOwnedPlotModel()
                 if not plot then
@@ -6992,7 +6946,6 @@ do
 
         ShopBox:Button({
             Title = "Open Bomb Shop",
-            Desc = "Open BomberBarry bomb shop",
             Callback = function()
                 local ok = pcall(function()
                     local remote = ReplicatedStorage:FindFirstChild("Remotes")
@@ -7026,7 +6979,6 @@ do
 
         SettingsBox:Button({
             Title = "Unload",
-            Desc = "Unload the script",
             Callback = function()
                 S.espActive = false
                 S.playerEspActive = false
