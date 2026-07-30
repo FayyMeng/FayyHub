@@ -216,7 +216,7 @@ local CONTAINER_NAMES   = { "DroppedCrystals", "Crystals" }
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 local Window = WindUI:CreateWindow({
-    Title = "FayyMeng",
+    Title = "Mine A Mountain",
     Icon = "pickaxe",
     Author = "FayyMeng",
     Folder = "FayyMengMountain",
