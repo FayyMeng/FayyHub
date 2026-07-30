@@ -39,7 +39,6 @@ do
 
     silenceIdle()
 
-    -- Idled may not exist on all clients / executors
     pcall(function()
         local idled = LocalPlayer.Idled
         if idled then
@@ -80,7 +79,7 @@ end
 local GuiRoot = resolveGuiRoot()
 
 for _, container in ipairs({ GuiRoot, CoreGui }) do
-    for _, name in ipairs({ "UniverseESPGui", "UniverseCrystalEsp" }) do
+    for _, name in ipairs({ "FayyMengESPGui", "FayyMengCrystalEsp" }) do
         pcall(function()
             local existing = container:FindFirstChild(name)
             if existing then
@@ -217,10 +216,10 @@ local CONTAINER_NAMES   = { "DroppedCrystals", "Crystals" }
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 local Window = WindUI:CreateWindow({
-    Title = "Mine a Mountain",
+    Title = "FayyMeng",
     Icon = "pickaxe",
-    Author = "Universe",
-    Folder = "MineAMountain",
+    Author = "FayyMeng",
+    Folder = "FayyMengMountain",
     Size = UDim2.fromOffset(580, 460),
     MinSize = Vector2.new(560, 350),
     MaxSize = Vector2.new(850, 560),
@@ -241,7 +240,7 @@ local Tabs = {
 }
 
 local EspHolder = Instance.new("Folder")
-EspHolder.Name = "UniverseCrystalEsp"
+EspHolder.Name = "FayyMengCrystalEsp"
 EspHolder.Parent = GuiRoot
 
 local S = {
@@ -300,7 +299,7 @@ local function reportError(context, err)
         return
     end
     S.lastReport = now
-    warn(string.format("[Mine a Mountain] %s: %s", context, tostring(err)))
+    warn(string.format("[FayyMeng] %s: %s", context, tostring(err)))
 end
 
 local function formatShort(n, prefix)
@@ -774,7 +773,7 @@ end
 
 local function createEntry(inst)
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "UniverseEsp"
+    billboard.Name = "FayyMengEsp"
     billboard.Adornee = inst
     billboard.AlwaysOnTop = true
     billboard.ResetOnSpawn = false
@@ -1077,7 +1076,7 @@ local function updateDistances()
     end
 end
 
-local clearLuckEsp  -- forward declaration, defined below after S.luckEspCache is set up
+local clearLuckEsp
 
 local function clearEsp()
     for inst, entry in pairs(S.espCache) do
@@ -1118,15 +1117,13 @@ local function requestRefresh()
     S.sweepAccumulator = math.huge
 end
 
--- ── Luck ESP system (independent from crystal value ESP) ─────────────────────
-
 local function luckEspGuiSize()
     return UDim2.fromOffset(ESP.width * S.espScale, math.floor(ESP.height * S.espScale * 0.45))
 end
 
 local function createLuckEntry(inst)
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "UniverseLuckEsp"
+    billboard.Name = "FayyMengLuckEsp"
     billboard.Adornee = inst
     billboard.AlwaysOnTop = true
     billboard.ResetOnSpawn = false
@@ -1210,8 +1207,6 @@ local function refreshLuckEsp()
     end)
 end
 
--- ─────────────────────────────────────────────────────────────────────────────
-
 local function trackingEnabled()
     return S.espActive or S.luckEspActive
 end
@@ -1255,7 +1250,6 @@ local function updateTracking()
         clearRegistry()
     end
 end
-
 
 local espConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.statsDirty and S.StatsLabel then
@@ -1346,7 +1340,7 @@ end
 
 local function createPlayerEntry(player)
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "UniversePlayerEsp"
+    billboard.Name = "FayyMengPlayerEsp"
     billboard.AlwaysOnTop = true
     billboard.ResetOnSpawn = false
     billboard.LightInfluence = 0
@@ -1362,7 +1356,7 @@ local function createPlayerEntry(player)
     nameLabel.Text = player.DisplayName
 
     local highlight = Instance.new("Highlight")
-    highlight.Name = "UniversePlayerOutline"
+    highlight.Name = "FayyMengPlayerOutline"
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.FillTransparency = 0.85
     highlight.OutlineTransparency = 0
@@ -1611,7 +1605,6 @@ local function teleportTo(target)
     local goalPos = findClearGoal(position + TP.offset, ignore)
     local goalFrame = CFrame.new(goalPos, goalPos + Vector3.new(0, 0, -1))
 
-    -- Use the same glide/tween system as Auto Boulders (AlignPosition)
     if Move and Move.glide then
         local ok = Move.glide(goalFrame, position)
         if ok then
@@ -1627,7 +1620,6 @@ local function teleportTo(target)
                     if r and (r.Position - goalPos).Magnitude <= 6 then
                         break
                     end
-                    -- keep guiding glide
                     if Move.glide then
                         pcall(Move.glide, goalFrame, position)
                     end
@@ -1643,7 +1635,6 @@ local function teleportTo(target)
         end
     end
 
-    -- Fallback: direct pivot
     if not applyPivot(goalFrame) then
         return false
     end
@@ -1794,21 +1785,18 @@ local function pickupCandidates(free, origin)
 
         local value = crystalValue(child)
 
-        -- ESP min-value filter when only plain auto pickup is on
         if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
             if not meetsFilter(child, value) then
                 return
             end
         end
 
-        -- Auto Pickup by Value
         if S.pickupValueActive then
             if value < (S.pickupMinValue or 0) then
                 return
             end
         end
 
-        -- Auto Pickup by Luck
         if S.pickupLuckActive then
             local ok, luck = pcall(crystalLuck, child)
             local luckPct = (ok and luck or 0) * 100
@@ -2045,13 +2033,12 @@ local function pickupStep()
 
     local free = backpackFree()
     if free <= 0 then
-        -- Bag full: stop all pickup attempts (no stream / no grab spam)
         S.lastPickup = now
         table.clear(S.candidates)
         if now - S.lastBagWarn >= 12 then
             S.lastBagWarn = now
             WindUI:Notify({
-                Title = "Mine a Mountain",
+                Title = "FayyMeng",
                 Content = "Backpack full - pickup paused",
                 Duration = 2,
                 Icon = "alert-circle",
@@ -2068,7 +2055,6 @@ local function pickupStep()
 
     S.candidates = pickupCandidates(free, root.Position)
     if #S.candidates == 0 then
-        -- Only stream if bag still has room (avoid spam when full/near-full)
         if free > 0.5 then
             requestStream(root.Position)
         end
@@ -2083,7 +2069,6 @@ local function pickupStep()
             break
         end
 
-        -- Skip crystals that cannot fit
         if entry.weight <= budget and budget > 0 then
             claimed[entry.inst] = now
 
@@ -2097,11 +2082,9 @@ local function pickupStep()
     if grabs > 0 then
         S.lastPickup = now
     else
-        -- Nothing fit - back off briefly to avoid spam
         S.lastPickup = now
     end
 end
-
 
 local function tryFilteredCrystalPickup(origin, free)
     if free == nil then
@@ -2111,7 +2094,6 @@ local function tryFilteredCrystalPickup(origin, free)
         return false
     end
 
-    -- Only when value/luck pickup modes are enabled
     if not S.pickupValueActive and not S.pickupLuckActive then
         return false
     end
@@ -2130,7 +2112,6 @@ local function tryFilteredCrystalPickup(origin, free)
             break
         end
         if entry.weight <= budget and budget > 0 then
-            -- Must match at least one active filter (candidates already filtered)
             local okValue = not S.pickupValueActive or entry.value >= (S.pickupMinValue or 0)
             local okLuck = true
             if S.pickupLuckActive then
@@ -2227,8 +2208,6 @@ local function setSpeedBoost(value)
     end
 end
 
-
--- Refresh player ESP when someone joins / leaves
 pcall(function()
     Players.PlayerAdded:Connect(function()
         if S.playerEspActive then
@@ -2241,7 +2220,6 @@ pcall(function()
         if S.playerEspActive then
             pcall(function()
                 if S.playerCache and S.playerCache[player] then
-                    -- cleanup handled in updatePlayerEsp
                 end
                 updatePlayerEsp()
             end)
@@ -2252,7 +2230,6 @@ end)
 local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.tpState then
         local ok, err = pcall(function()
-            -- Glide-based TP is driven by Move.glide; only hold with pivot as fallback
             if not S.tpState.usingGlide then
                 if not applyPivot(S.tpState.goal) then
                     finishTeleport()
@@ -2277,7 +2254,6 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    -- Throttled auto-pickup (not every frame)
     if S.autoPickupActive or S.pickupValueActive or S.pickupLuckActive then
         S._pickupAcc = (S._pickupAcc or 0) + deltaTime
         if S._pickupAcc >= (PACE.pickup or 0.08) then
@@ -2309,7 +2285,6 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    -- Throttled player ESP
     if S.playerEspActive then
         S._playerEspAcc = (S._playerEspAcc or 0) + deltaTime
         if S._playerEspAcc >= (PACE.playerEsp or 0.25) then
@@ -2447,7 +2422,7 @@ end
 local function aimTeleport()
     if not S.espActive then
         WindUI:Notify({
-            Title = "Mine a Mountain",
+            Title = "FayyMeng",
             Content = "Enable Crystal ESP first",
             Duration = 3,
             Icon = "alert-circle",
@@ -2458,7 +2433,7 @@ local function aimTeleport()
     local inst = getAimedCrystal()
     if not inst then
         WindUI:Notify({
-            Title = "Mine a Mountain",
+            Title = "FayyMeng",
             Content = "No crystal aimed",
             Duration = 2,
             Icon = "alert-circle",
@@ -2466,28 +2441,14 @@ local function aimTeleport()
         return
     end
 
-    if teleportTo(inst) then
-        WindUI:Notify({
-            Title = "Mine a Mountain",
-            Content = string.format("TP -> %s", crystalName(inst)),
-            Duration = 2,
-            Icon = "check",
-        })
-    else
-        WindUI:Notify({
-            Title = "Mine a Mountain",
-            Content = "Teleport failed",
-            Duration = 2,
-            Icon = "alert-circle",
-        })
-    end
+    teleportTo(inst)
 end
 
 local function tpToRank(scoreFn, rank, formatter)
     local entry = sortedByScore(scoreFn)[rank]
     if not entry or entry.score <= 0 then
         WindUI:Notify({
-            Title = "Mine a Mountain",
+            Title = "FayyMeng",
             Content = string.format("No crystal for #%d", rank),
             Duration = 3,
             Icon = "alert-circle",
@@ -2495,21 +2456,7 @@ local function tpToRank(scoreFn, rank, formatter)
         return
     end
 
-    if teleportTo(entry.inst) then
-        WindUI:Notify({
-            Title = "Mine a Mountain",
-            Content = string.format("TP #%d %s (%s)", rank, crystalName(entry.inst), formatter(entry.inst, entry.score)),
-            Duration = 3,
-            Icon = "check",
-        })
-    else
-        WindUI:Notify({
-            Title = "Mine a Mountain",
-            Content = "Teleport failed",
-            Duration = 3,
-            Icon = "alert-circle",
-        })
-    end
+    teleportTo(entry.inst)
 end
 
 local function fireRemote(remote, ...)
@@ -2590,7 +2537,6 @@ local function mountainSpan()
     return 150
 end
 
--- Point-in-part helper (PlotMath / ZoneCheck style)
 local function isPointInPart(point, part)
     if not (part and part.Parent and part:IsA("BasePart")) then
         return false
@@ -2614,7 +2560,6 @@ local function distanceToPart(point, part)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
--- Official mountain zone from workspace attributes (ZoneCheck.isInMountainZone)
 local function isInMountainZone(point)
     if typeof(point) ~= "Vector3" then
         return false
@@ -2636,7 +2581,6 @@ local function isInMountainZone(point)
             and point.Y <= (peakY + 120)
     end
 
-    -- Fallback: MountainZones OBB parts
     local things = Workspace:FindFirstChild("Things")
     local zones = things and things:FindFirstChild("MountainZones")
     if zones then
@@ -2680,7 +2624,6 @@ local function isInNoDigZone(point)
     return false
 end
 
--- True when player is at base / not on the mountain (hysteresis + Y bounds)
 local function isAtBase()
     local root = getRoot()
     if not root then
@@ -2689,7 +2632,6 @@ local function isAtBase()
 
     local pos = root.Position
 
-    -- Prefer official mountain zone check
     if isInMountainZone(pos) then
         S.wasAtBase = false
         return false
@@ -2813,7 +2755,7 @@ do
 
         local function createCard(anchor, offset, colors, width, height)
             local billboard = Instance.new("BillboardGui")
-            billboard.Name = "UniverseMountainEsp"
+            billboard.Name = "FayyMengMountainEsp"
             billboard.Adornee = anchor
             billboard.AlwaysOnTop = true
             billboard.ResetOnSpawn = false
@@ -3046,9 +2988,8 @@ do
                         BOULDER_WIDTH,
                         BOULDER_HEIGHT
                     )
-                    -- Outline that stays visible even when boulder parts are invisible
                     local sel = Instance.new("SelectionBox")
-                    sel.Name = "UniverseBoulderOutline"
+                    sel.Name = "FayyMengBoulderOutline"
                     sel.Adornee = model
                     sel.Color3 = info.color
                     sel.LineThickness = 0.08
@@ -3058,7 +2999,7 @@ do
                     entry.selection = sel
 
                     local box = Instance.new("BoxHandleAdornment")
-                    box.Name = "UniverseBoulderBox"
+                    box.Name = "FayyMengBoulderBox"
                     box.Adornee = anchor
                     box.AlwaysOnTop = true
                     box.ZIndex = 5
@@ -3068,9 +3009,8 @@ do
                     box.Parent = EspHolder
                     entry.box = box
 
-                    -- Highlight as extra layer (works once boulder becomes visible)
                     local hl = Instance.new("Highlight")
-                    hl.Name = "UniverseBoulderHighlight"
+                    hl.Name = "FayyMengBoulderHighlight"
                     hl.Adornee = model
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                     hl.FillTransparency = 0.8
@@ -3094,7 +3034,6 @@ do
                 if entry.box then
                     entry.box.Adornee = anchor
                     entry.box.Color3 = info.color
-                    -- Keep box size in sync with anchor (invisible boulders still have size)
                     pcall(function()
                         if model:IsA("Model") then
                             local size = model:GetExtentsSize()
@@ -3188,7 +3127,7 @@ do
                 if firePrompt(prompt) then
                     fired += 1
                     WindUI:Notify({
-                        Title = "Mine a Mountain",
+                        Title = "FayyMeng",
                         Content = string.format("Rune: %s", runeTitle(owner)),
                         Duration = 2,
                         Icon = "gem",
@@ -3355,7 +3294,7 @@ do
 
             local ok = pcall(function()
                 local body = Instance.new("BodyVelocity")
-                body.Name = "UniverseFlyVelocity"
+                body.Name = "FayyMengFlyVelocity"
                 body.MaxForce = Vector3.new(9e9, 9e9, 9e9)
                 body.P = 9e4
                 body.Velocity = Vector3.zero
@@ -3363,7 +3302,7 @@ do
                 velocity = body
 
                 local spin = Instance.new("BodyGyro")
-                spin.Name = "UniverseFlyGyro"
+                spin.Name = "FayyMengFlyGyro"
                 spin.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
                 spin.P = 9e4
                 spin.D = 500
@@ -3625,11 +3564,11 @@ do
 
             local ok = pcall(function()
                 local point = Instance.new("Attachment")
-                point.Name = "UniverseGlidePoint"
+                point.Name = "FayyMengGlidePoint"
                 point.Parent = root
 
                 local position = Instance.new("AlignPosition")
-                position.Name = "UniverseGlidePosition"
+                position.Name = "FayyMengGlidePosition"
                 position.Mode = Enum.PositionAlignmentMode.OneAttachment
                 position.Attachment0 = point
                 position.RigidityEnabled = false
@@ -3642,7 +3581,7 @@ do
                 position.Parent = root
 
                 local orientation = Instance.new("AlignOrientation")
-                orientation.Name = "UniverseGlideOrientation"
+                orientation.Name = "FayyMengGlideOrientation"
                 orientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
                 orientation.Attachment0 = point
                 orientation.RigidityEnabled = false
@@ -3812,7 +3751,6 @@ do
             end
         })
 
-
         CrystalBox:Paragraph({
             Title = "Min Value",
             Desc = "Example: 500k, 2m, 1.5b. Empty shows everything",
@@ -3847,7 +3785,6 @@ do
             self.Desc = text
         end
 
-        -- ── ESP Luck Filter ──────────────────────────────────────
         local LuckBox = Tabs.esp:Section({ Title = "ESP Luck", Icon = "sparkles", Opened = true })
 
         LuckBox:Paragraph({
@@ -3924,7 +3861,6 @@ do
             Value = false,
             Callback = Mountain.setBoulderEsp
         })
-
 
         for _, text in ipairs(Mountain.boulderList()) do
             BoulderBox:Paragraph({
@@ -4194,11 +4130,7 @@ do
             Title = "TP Home",
             Desc = "Teleport to your home base",
             Callback = function()
-                if fireRemote(GoHome, "home") then
-                    WindUI:Notify({ Title = "Mine a Mountain", Content = "Teleporting home", Duration = 2, Icon = "check" })
-                else
-                    WindUI:Notify({ Title = "Mine a Mountain", Content = "Remote unavailable", Duration = 2, Icon = "alert-circle" })
-                end
+                fireRemote(GoHome, "home")
             end
         })
 
@@ -4207,7 +4139,6 @@ do
             Desc = "Sell all crystals in backpack",
             Callback = function()
                 if doSell() then
-                    WindUI:Notify({ Title = "Mine a Mountain", Content = "Selling all crystals", Duration = 2, Icon = "check" })
                 end
             end
         })
@@ -5006,7 +4937,7 @@ do
         local function restart()
             task.spawn(function()
                 pcall(function()
-                    LocalPlayer:Kick("Universe: restarting server")
+                    LocalPlayer:Kick("FayyMeng: restarting server")
                 end)
 
                 for _ = 1, 20 do
@@ -5194,7 +5125,6 @@ do
 
             local now = os.clock()
 
-            -- Priority: filtered crystal pickup (throttled)
             if S.pickupValueActive or S.pickupLuckActive then
                 filterPickClock = (filterPickClock or 0) + deltaTime
                 if filterPickClock >= 0.12 then
@@ -5222,7 +5152,6 @@ do
                 local model = pickTarget()
                 if not model then
                     noTargetClock = (noTargetClock or 0) + deltaTime
-                    -- Keep streaming and retry for a while before giving up
                     local spot = mountainSpot() or root.Position
                     if noTargetClock < 12 then
                         if math.floor(noTargetClock * 2) % 2 == 0 then
@@ -5411,7 +5340,7 @@ do
 
                 statusText = "Restarting server"
                 WindUI:Notify({
-                    Title = "Mine a Mountain",
+                    Title = "FayyMeng",
                     Content = "No boulders left - kicking and rejoining",
                     Duration = 3,
                     Icon = "alert-circle",
@@ -5453,7 +5382,6 @@ do
                 return
             end
 
-            -- If none selected, default to all boulder types
             if not next(targets) then
                 for _, kind in ipairs(FARM_KINDS) do
                     targets[kind] = true
@@ -5972,7 +5900,6 @@ do
             local now = os.clock()
 
             if not loaded then
-                -- Stream without traveling to scan spots
                 local spot = mountainSpot()
                 if spot then
                     requestStream(spot)
@@ -6258,8 +6185,6 @@ do
     install()
 end
 
--- ===== FAST DIG =====
--- Uses the same dig speed as Auto Mine / Auto Boulders (Farm.swingGap * 0.4)
 local fastDigConn
 
 do
@@ -6277,13 +6202,11 @@ do
         return nil
     end
 
-    -- Deteksi mode mining crystal (setelah pickup)
     local miningCheckClock = 0
     local isMiningCrystal = false
     local MINING_CHECK_GAP = 0.35
     local MINING_RANGE = 18
 
-    -- Match boulder / auto-mine dig style
     local SWING_BURST = 6
     local DIG_RANGE = 20
 
@@ -6336,7 +6259,6 @@ do
         return false
     end
 
-    -- Dig only along camera look direction (terrain or boulder)
     local function getLookDigAim(camera, character)
         local origin = camera.CFrame.Position
         local look = camera.CFrame.LookVector
@@ -6385,24 +6307,20 @@ do
             return
         end
 
-        -- Safety: Fast Dig disabled while at base / outside mountain
         if isAtBase() or not isInMountainZone(root.Position) then
             swingClock = 0
             return
         end
 
-        -- Dig at the look-direction hit point
         local aim = getLookDigAim(camera, character)
         if not aim then
             return
         end
 
-        -- Skip dig in no-dig zones
         if isInNoDigZone(aim) then
             return
         end
 
-        -- Dig speed from Dig Settings (default 0.4 = same as Auto Mine)
         local mult = tonumber(S.digSpeedMult) or 0.4
         mult = math.clamp(mult, 0.05, 1)
         local baseGap = (Farm.swingGap and Farm.swingGap(pick)) or 0.04
@@ -6413,7 +6331,6 @@ do
             return
         end
 
-        -- Do not stack delay after leaving base / lag spikes
         swingClock = swingClock - swingNeed
         if swingClock > swingNeed then
             swingClock = 0
@@ -6432,7 +6349,6 @@ do
         flat = flat.Unit
         local side = Vector3.new(-flat.Z, 0, flat.X)
 
-        -- digRadius server-side ~4; 7 points cover F/B/L/R/Up without excess remotes
         local r = 4
         pcall(function()
             event:FireServer(name, aim)
@@ -6509,6 +6425,7 @@ do
         }
 
         local selectedRunes = {} -- [runeName] = true
+        local placeAmount = 1
 
         local function getOwnedPlotModel()
             local things = Workspace:FindFirstChild("Things")
@@ -6518,13 +6435,11 @@ do
                 return nil
             end
 
-            -- Prioritas: folder name = LocalPlayer.Name (Workspace.Things.Plots.Slots.Username)
             local byName = slots:FindFirstChild(LocalPlayer.Name)
             if byName then
                 return byName
             end
 
-            -- Fallback: match by attribute / owner
             for _, slot in ipairs(slots:GetChildren()) do
                 if slot:IsA("Model") then
                     local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
@@ -6534,7 +6449,6 @@ do
                 end
             end
 
-            -- Fallback 2: cek Sign di dalam slot
             for _, child in ipairs(slots:GetChildren()) do
                 local sign = child:FindFirstChild("Sign")
                 if sign then
@@ -6558,8 +6472,11 @@ do
             return nil
         end
 
-        local function collectRuneTools(selectedOnly)
+        local function collectRuneTools(selectedOnly, maxPerType)
             local list = {}
+            local counts = {}
+            local limit = tonumber(maxPerType) or math.huge
+
             local function scan(container)
                 if not container then
                     return
@@ -6567,7 +6484,11 @@ do
                 for _, child in ipairs(container:GetChildren()) do
                     if child:IsA("Tool") and child.Name:find("Rune", 1, true) then
                         if not selectedOnly or selectedRunes[child.Name] then
-                            list[#list + 1] = child
+                            local n = counts[child.Name] or 0
+                            if n < limit then
+                                counts[child.Name] = n + 1
+                                list[#list + 1] = child
+                            end
                         end
                     end
                 end
@@ -6581,7 +6502,7 @@ do
             if next(selectedRunes) == nil then
                 WindUI:Notify({
                     Title = "Place Runes",
-                    Content = "Pilih minimal 1 rune di dropdown dulu!",
+                    Content = "Select at least 1 rune first",
                     Duration = 3,
                     Icon = "alert-circle",
                 })
@@ -6592,7 +6513,7 @@ do
             if not plot then
                 WindUI:Notify({
                     Title = "Plot",
-                    Content = "Own plot not found (Things.Plots.Slots.[Username])",
+                    Content = "Own plot not found",
                     Duration = 3,
                     Icon = "alert-circle",
                 })
@@ -6621,25 +6542,23 @@ do
                 return
             end
 
-            local runes = collectRuneTools(true) -- hanya yang dipilih
+            local runes = collectRuneTools(true, placeAmount)
             if #runes == 0 then
                 WindUI:Notify({
                     Title = "Place Runes",
-                    Content = "Tidak ada rune terpilih di inventory / character",
+                    Content = "No selected runes in inventory",
                     Duration = 3,
                     Icon = "alert-circle",
                 })
                 return
             end
 
-            -- PlotMath-style placement: local coords inside Region, floor height, isInBounds
             local cf = region.CFrame
             local size = region.Size
             local half = size * 0.5
-            -- padding so not on edge
             local padX = math.max(half.X - 1.5, 1)
             local padZ = math.max(half.Z - 1.5, 1)
-            local runeHalfY = 1 -- default rune height half
+            local runeHalfY = 1
 
             local function worldToLocal(world)
                 local p = cf:PointToObjectSpace(world)
@@ -6662,16 +6581,13 @@ do
                 for _ = 1, 16 do
                     local lx = (math.random() - 0.5) * 2 * padX
                     local lz = (math.random() - 0.5) * 2 * padZ
-                    -- floor of region + half object height (PlotMath.placementLocalCF style)
                     local ly = oh.Y + 0.05
                     local localPos = Vector3.new(lx, ly, lz)
                     if isInBoundsLocal(localPos, objectSize) then
-                        -- convert local (with Y from bottom) back to world
                         local bottomLocal = Vector3.new(lx, ly - half.Y, lz)
                         return cf:PointToWorldSpace(bottomLocal)
                     end
                 end
-                -- center floor fallback
                 local bottomLocal = Vector3.new(0, oh.Y + 0.05 - half.Y, 0)
                 return cf:PointToWorldSpace(bottomLocal)
             end
@@ -6721,12 +6637,14 @@ do
                     task.wait(0.4)
                 end
 
-                WindUI:Notify({
-                    Title = "Place Runes",
-                    Content = string.format("Berhasil place %d rune", placed),
-                    Duration = 3,
-                    Icon = "check",
-                })
+                if placed > 0 then
+                    WindUI:Notify({
+                        Title = "Place Runes",
+                        Content = string.format("Placed %d", placed),
+                        Duration = 2,
+                        Icon = "check",
+                    })
+                end
             end)
         end
 
@@ -6756,7 +6674,6 @@ do
                 if not inst or seen[inst] then
                     return
                 end
-                -- Prefer model root
                 local model = inst
                 if inst:IsA("BasePart") and inst.Parent and inst.Parent:IsA("Model") then
                     model = inst.Parent
@@ -6805,12 +6722,58 @@ do
             return nil
         end
 
+        local function runeStillOnPlot(rune, plot)
+            if not rune or not rune.Parent then
+                return false
+            end
+            if plot and rune:IsDescendantOf(plot) then
+                return true
+            end
+            if getAttr(rune, "IsRune") == true or (type(rune.Name) == "string" and rune.Name:find("Rune", 1, true)) then
+                return rune.Parent ~= nil
+            end
+            return false
+        end
+
+        local function firePickupRune(Event, rune)
+            pcall(function()
+                Event:FireServer(rune)
+            end)
+
+            local prompt = rune:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                pcall(function()
+                    if typeof(fireproximityprompt) == "function" then
+                        fireproximityprompt(prompt)
+                    end
+                end)
+                pcall(function()
+                    prompt:InputHoldBegin()
+                end)
+                task.wait(0.05)
+                pcall(function()
+                    prompt:InputHoldEnd()
+                end)
+            end
+        end
+
+        local function waitUntilPicked(rune, plot, timeout)
+            local deadline = os.clock() + (timeout or 1.2)
+            while os.clock() < deadline do
+                if not runeStillOnPlot(rune, plot) then
+                    return true
+                end
+                task.wait(0.08)
+            end
+            return not runeStillOnPlot(rune, plot)
+        end
+
         local function pickupAllPlacedRunes()
             local Event = findRemote("PlotPlacePickup")
             if not Event then
                 WindUI:Notify({
                     Title = "Pickup",
-                    Content = "Remote PlotPlacePickup tidak ditemukan",
+                    Content = "PlotPlacePickup remote missing",
                     Duration = 3,
                     Icon = "alert-circle",
                 })
@@ -6832,7 +6795,7 @@ do
             if #runes == 0 then
                 WindUI:Notify({
                     Title = "Pickup",
-                    Content = "Tidak ada rune di plot",
+                    Content = "No runes on plot",
                     Duration = 3,
                     Icon = "alert-circle",
                 })
@@ -6840,7 +6803,6 @@ do
             end
 
             task.spawn(function()
-                -- Float so tidak jatuh kalau rune di udara
                 if Move and Move.setFly then
                     pcall(Move.setFly, true)
                 end
@@ -6849,6 +6811,8 @@ do
                 end
 
                 local picked = 0
+                local failed = 0
+
                 for _, rune in ipairs(runes) do
                     if not rune or not rune.Parent then
                         continue
@@ -6856,32 +6820,43 @@ do
 
                     local pos = runeWorldPosition(rune)
                     if not pos then
+                        failed += 1
                         continue
                     end
 
-                    -- Teleport tepat di posisi rune
-                    pcall(teleportTo, pos)
-                    task.wait(0.25)
+                    local success = false
+                    for attempt = 1, 3 do
+                        if not runeStillOnPlot(rune, plot) then
+                            success = true
+                            break
+                        end
 
-                    local root = getRoot()
-                    if root then
-                        local dist = (root.Position - pos).Magnitude
-                        if dist > 12 then
+                        pcall(teleportTo, pos)
+                        task.wait(0.2)
+
+                        local root = getRoot()
+                        if root and (root.Position - pos).Magnitude > 8 then
                             pcall(teleportTo, pos)
                             task.wait(0.15)
                         end
+
+                        firePickupRune(Event, rune)
+
+                        if waitUntilPicked(rune, plot, 1.0) then
+                            success = true
+                            break
+                        end
+
+                        task.wait(0.2)
                     end
 
-                    local ok = pcall(function()
-                        Event:FireServer(rune)
-                    end)
-                    if ok then
+                    if success then
                         picked += 1
+                    else
+                        failed += 1
                     end
-                    task.wait(0.35)
                 end
 
-                -- Kembali ke base
                 task.wait(0.2)
                 if GoHome then
                     pcall(function()
@@ -6889,7 +6864,7 @@ do
                     end)
                 end
 
-                task.wait(0.6)
+                task.wait(0.5)
                 if Move and Move.setFly then
                     pcall(Move.setFly, false)
                 end
@@ -6899,49 +6874,68 @@ do
 
                 WindUI:Notify({
                     Title = "Pickup Runes",
-                    Content = string.format("Picked %d rune(s), returning to base", picked),
+                    Content = string.format("Success %d | Failed %d | returning home", picked, failed),
                     Duration = 3,
-                    Icon = "check",
+                    Icon = picked > 0 and "check" or "alert-circle",
                 })
             end)
         end
 
         PlotBox:Paragraph({
             Title = "Place & Pickup Runes",
-            Desc = "Deteksi plot: Workspace.Things.Plots.Slots.[Username]\nPilih rune di dropdown lalu place. Bisa juga pickup semua yang sudah di-place.",
+            Desc = "Detects your plot via Slots.[Username]. Select runes, set amount, place or pickup.",
         })
 
         PlotBox:Dropdown({
-            Title = "Pilih Rune yang mau di-Place",
-            Desc = "Centang rune mana saja yang ingin di-place (bukan place all)",
+            Title = "Select Runes to Place",
+            Desc = "Choose which runes to place",
             Values = RUNE_LIST,
             Multi = true,
             AllowNone = true,
             Callback = function(option)
                 table.clear(selectedRunes)
                 if type(option) == "table" then
-                    for _, name in ipairs(option) do
-                        selectedRunes[name] = true
+                    for key, flag in pairs(option) do
+                        if type(key) == "string" and (flag == true or flag == "true") then
+                            selectedRunes[key] = true
+                        elseif type(flag) == "string" then
+                            selectedRunes[flag] = true
+                        end
                     end
+                end
+            end
+        })
+
+        PlotBox:Input({
+            Title = "Amount Per Rune",
+            Desc = "How many of each selected rune to place",
+            Value = "1",
+            Placeholder = "1",
+            Callback = function(value)
+                local n = tonumber(value)
+                if n and n > 0 then
+                    placeAmount = math.floor(n)
+                else
+                    placeAmount = 1
                 end
             end
         })
 
         PlotBox:Button({
             Title = "Place Selected Runes",
-            Desc = "Place hanya rune yang dipilih di dropdown",
+            Desc = "Place selected runes (max amount per type)",
             Callback = placeSelectedRunes,
         })
 
         PlotBox:Button({
             Title = "Pickup All Placed Runes",
-            Desc = "TP ke tiap rune di plot (float), pickup, lalu kembali ke base",
+            Desc = "TP to each placed rune, pickup, return home",
             Callback = pickupAllPlacedRunes,
         })
 
         PlotBox:Button({
             Title = "TP To Own Plot",
-            Desc = "Teleport to Sign on your plot",
+            Desc = "Teleport to your plot Sign",
             Callback = function()
                 local plot = getOwnedPlotModel()
                 if not plot then
@@ -7011,7 +7005,6 @@ do
                     if typeof(firesignal) == "function" then
                         firesignal(remote.OnClientEvent, barry)
                     else
-                        -- fallback: try getconnections / fire OnClientEvent handlers
                         local handlers = getconnections and getconnections(remote.OnClientEvent)
                         if handlers then
                             for _, conn in ipairs(handlers) do
@@ -7026,12 +7019,6 @@ do
                         end
                     end
                 end)
-                WindUI:Notify({
-                    Title = "Mine a Mountain",
-                    Content = ok and "Bomb shop opened" or "Failed to open bomb shop",
-                    Duration = 2,
-                    Icon = ok and "check" or "alert-circle",
-                })
             end
         })
 
@@ -7136,4 +7123,127 @@ do
     end
 
     install()
+end
+
+do
+    local ADMIN_NAMES = {
+        Firemalte07 = true,
+        BAiLeymen = true,
+    }
+
+    local panicked = false
+
+    local function isAdminPlayer(player)
+        if not player then
+            return false
+        end
+        if ADMIN_NAMES[player.Name] then
+            return true
+        end
+        if ADMIN_NAMES[player.DisplayName] then
+            return true
+        end
+        return false
+    end
+
+    local function adminInGame()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and isAdminPlayer(player) then
+                return true, player
+            end
+        end
+        return false, nil
+    end
+
+    local function silentPanic()
+        if panicked then
+            return
+        end
+        panicked = true
+
+        pcall(function()
+            S.espActive = false
+            S.playerEspActive = false
+            S.luckEspActive = false
+            S.autoPickupActive = false
+            S.pickupValueActive = false
+            S.pickupLuckActive = false
+            S.fastDigActive = false
+            S.aimTpEnabled = false
+            S.instantPromptActive = false
+            S.speedActive = false
+        end)
+
+        pcall(function()
+            if Farm and Farm.stop then Farm.stop() end
+        end)
+        pcall(function()
+            if Money and Money.stop then Money.stop() end
+        end)
+        pcall(function()
+            if Mountain and Mountain.shutdown then Mountain.shutdown() end
+        end)
+        pcall(function()
+            if Move and Move.shutdown then Move.shutdown() end
+        end)
+        pcall(function()
+            if Move and Move.setFly then Move.setFly(false) end
+        end)
+        pcall(function()
+            if Move and Move.setNoclip then Move.setNoclip(false) end
+        end)
+
+        pcall(function()
+            if clearEsp then clearEsp() end
+        end)
+        pcall(function()
+            if clearPlayerEsp then clearPlayerEsp() end
+        end)
+        pcall(function()
+            if clearLuckEsp then clearLuckEsp() end
+        end)
+        pcall(function()
+            if EspHolder then
+                EspHolder:ClearAllChildren()
+            end
+        end)
+
+        pcall(function()
+            if Window and Window.Destroy then
+                Window:Destroy()
+            end
+        end)
+        pcall(function()
+            if EspHolder then
+                EspHolder:Destroy()
+            end
+        end)
+    end
+
+    local function scanAdmins()
+        local found = adminInGame()
+        if found then
+            silentPanic()
+        end
+    end
+
+    task.defer(scanAdmins)
+
+    pcall(function()
+        Players.PlayerAdded:Connect(function(player)
+            if isAdminPlayer(player) then
+                silentPanic()
+            end
+        end)
+    end)
+
+    task.spawn(function()
+        while not panicked do
+            task.wait(3)
+            if panicked then
+                break
+            end
+            scanAdmins()
+        end
+    end)
 end
