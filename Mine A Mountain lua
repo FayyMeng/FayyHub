@@ -234,7 +234,10 @@ local Window = WindUI:CreateWindow({
 
 local Tabs = {
     esp = Window:Tab({ Title = "ESP", Icon = "eye" }),
-    farm = Window:Tab({ Title = "Farm", Icon = "pickaxe" }),
+    boulder = Window:Tab({ Title = "Boulder", Icon = "mountain" }),
+    money = Window:Tab({ Title = "Money", Icon = "banknote" }),
+    pickup = Window:Tab({ Title = "Pickup", Icon = "package" }),
+    dig = Window:Tab({ Title = "Dig", Icon = "pickaxe" }),
     runes = Window:Tab({ Title = "Runes", Icon = "sparkles" }),
     shop = Window:Tab({ Title = "Shop", Icon = "shopping-bag" }),
     movement = Window:Tab({ Title = "Movement", Icon = "person-standing" }),
@@ -3865,7 +3868,7 @@ end
 
 do
     local function install()
-        local BoulderBox = Tabs.esp
+        local BoulderBox = Tabs.boulder
 
         BoulderBox:Toggle({
             Title = "Boulder ESP",
@@ -3925,7 +3928,7 @@ end
 
 do
     local function install()
-        local PickupBox = Tabs.farm
+        local PickupBox = Tabs.pickup
 
         PickupBox:Toggle({
             Title = "Auto Pickup",
@@ -4998,84 +5001,19 @@ do
         end
 
         local function hold(goal, aim)
-            if S.farmMode == "Legit" then
+            if typeof(goal) ~= "CFrame" then
                 return false
             end
-            return Move.glide(goal, aim)
-        end
-
-        local function clearWalkBlockers(character, root, humanoid)
-            -- Remove any leftover movers that freeze the character
-            for _, inst in ipairs(root:GetChildren()) do
-                if inst:IsA("AlignPosition") or inst:IsA("AlignOrientation")
-                    or inst:IsA("BodyVelocity") or inst:IsA("BodyPosition")
-                    or inst:IsA("BodyGyro") or inst:IsA("LinearVelocity")
-                    or inst:IsA("AngularVelocity") or inst:IsA("VectorForce") then
+            if S.farmMode == "Teleport" then
+                local root = getRoot()
+                if root then
                     pcall(function()
-                        inst:Destroy()
+                        root.CFrame = goal
                     end)
                 end
-            end
-            for _, inst in ipairs(character:GetDescendants()) do
-                if inst:IsA("AlignPosition") or inst:IsA("BodyVelocity") or inst:IsA("BodyPosition") then
-                    if inst.Name:find("FayyMeng", 1, true) then
-                        pcall(function()
-                            inst:Destroy()
-                        end)
-                    end
-                end
-            end
-            pcall(function()
-                root.Anchored = false
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
-            end)
-            pcall(function()
-                humanoid.PlatformStand = false
-                humanoid.AutoRotate = true
-                humanoid.Sit = false
-                if humanoid.WalkSpeed < 14 then
-                    humanoid.WalkSpeed = 16
-                end
-                if humanoid.JumpPower < 30 then
-                    humanoid.JumpPower = 50
-                end
-            end)
-        end
-
-        local function legitWalkTo(goalPos)
-            local character = LocalPlayer.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            local root = getRoot()
-            if not (humanoid and root and goalPos) then
-                return false
-            end
-
-            clearWalkBlockers(character, root, humanoid)
-
-            local flat = Vector3.new(goalPos.X, root.Position.Y, goalPos.Z)
-            local delta = flat - root.Position
-            local dist = delta.Magnitude
-
-            if dist < 2.5 then
-                -- Arrived: stop move input
-                pcall(function()
-                    humanoid:Move(Vector3.zero, false)
-                end)
                 return true
             end
-
-            local dir = Vector3.new(delta.X, 0, delta.Z)
-            if dir.Magnitude < 0.05 then
-                return false
-            end
-            dir = dir.Unit
-
-            -- Continuous Move (works every Heartbeat, mobile + PC)
-            pcall(function()
-                humanoid:Move(dir, false)
-            end)
-
-            return true
+            return Move.glide(goal, aim)
         end
 
         local function restart()
@@ -5387,18 +5325,9 @@ do
                 end
 
                 if spotFrame then
-                    if S.farmMode == "Legit" then
-                        Move.setNoclip(false)
-                        Move.setFly(false)
-                        Move.glideStop()
-                        local goalPos = spotFrame.Position
-                        legitWalkTo(goalPos)
-                        statusText = string.format("Legit walk %s", kind)
-                    else
-                        Move.setNoclip(true)
-                        hold(spotFrame, center)
-                        statusText = string.format("Mining %s", kind)
-                    end
+                    Move.setNoclip(true)
+                    hold(spotFrame, center)
+                    statusText = string.format("Mining %s", kind)
                 end
 
                 if heldPick == nil or heldPick.Parent ~= LocalPlayer.Character then
@@ -5584,23 +5513,8 @@ do
             Mountain.setAutoGrab(true)
         end
 
-        local FarmBox = Tabs.farm
+        local FarmBox = Tabs.boulder
 
-        FarmBox:Dropdown({
-            Title = "Farm Mode",
-            Values = { "Tween", "Legit" },
-            Value = "Tween",
-            Callback = function(option)
-                if type(option) == "table" then
-                    option = option[1] or option.Value or option.Name or "Tween"
-                end
-                option = tostring(option or "Tween")
-                if option ~= "Legit" then
-                    option = "Tween"
-                end
-                S.farmMode = option
-            end
-        })
 
 
         FarmBox:Paragraph({
@@ -5952,6 +5866,18 @@ do
         end
 
         local function holdAt(goal, aim)
+            if typeof(goal) ~= "CFrame" then
+                return false
+            end
+            if S.farmMode == "Teleport" then
+                local root = getRoot()
+                if root then
+                    pcall(function()
+                        root.CFrame = goal
+                    end)
+                end
+                return true
+            end
             return Move.glide(goal, aim)
         end
 
@@ -6321,7 +6247,7 @@ do
             Mountain.setAutoGrab(true)
         end
 
-        local MoneyBox = Tabs.farm
+        local MoneyBox = Tabs.money
 
         MoneyBox:Paragraph({
             Title = "Money Farming",
@@ -6461,7 +6387,7 @@ do
     end
 
     local function fastDigStep(deltaTime)
-        if not S.fastDigActive and not (S.farmMode == "Legit" and S.miningBoulder) then
+        if not S.fastDigActive then
             return
         end
 
@@ -6550,7 +6476,7 @@ do
     end
 
     local function install()
-        local FastDigBox = Tabs.farm
+        local FastDigBox = Tabs.dig
 
         FastDigBox:Paragraph({
             Title = "Fast Dig",
@@ -7336,6 +7262,19 @@ do
         })
 
                 local SettingsBox = Tabs.settings
+
+        SettingsBox:Dropdown({
+            Title = "Farm Movement",
+            Values = { "Tween", "Teleport" },
+            Value = "Tween",
+            Callback = function(option)
+                if type(option) == "table" then
+                    option = option[1] or option.Value or option.Name or "Tween"
+                end
+                option = tostring(option or "Tween")
+                S.farmMode = (option == "Teleport") and "Teleport" or "Tween"
+            end
+        })
 
         SettingsBox:Dropdown({
             Title = "Mode",
