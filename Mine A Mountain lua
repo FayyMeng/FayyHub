@@ -2590,28 +2590,124 @@ local function mountainSpan()
     return 150
 end
 
--- True when player is at base / not on the mountain (hysteresis to avoid flicker)
+-- Point-in-part helper (PlotMath / ZoneCheck style)
+local function isPointInPart(point, part)
+    if not (part and part.Parent and part:IsA("BasePart")) then
+        return false
+    end
+    local localPos = part.CFrame:PointToObjectSpace(point)
+    local half = part.Size * 0.5
+    return math.abs(localPos.X) <= half.X
+        and math.abs(localPos.Y) <= half.Y
+        and math.abs(localPos.Z) <= half.Z
+end
+
+local function distanceToPart(point, part)
+    if not (part and part.Parent and part:IsA("BasePart")) then
+        return math.huge
+    end
+    local localPos = part.CFrame:PointToObjectSpace(point)
+    local half = part.Size * 0.5
+    local dx = math.max(math.abs(localPos.X) - half.X, 0)
+    local dy = math.max(math.abs(localPos.Y) - half.Y, 0)
+    local dz = math.max(math.abs(localPos.Z) - half.Z, 0)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Official mountain zone from workspace attributes (ZoneCheck.isInMountainZone)
+local function isInMountainZone(point)
+    if typeof(point) ~= "Vector3" then
+        return false
+    end
+
+    local cx = Workspace:GetAttribute("MountainCenterX")
+    local cz = Workspace:GetAttribute("MountainCenterZ")
+    local radius = Workspace:GetAttribute("MountainRadius")
+    local baseY = Workspace:GetAttribute("MountainBaseY")
+    local peakY = Workspace:GetAttribute("MountainPeakY")
+
+    if typeof(cx) == "number" and typeof(cz) == "number" and typeof(radius) == "number"
+        and typeof(baseY) == "number" and typeof(peakY) == "number" then
+        local dx = point.X - cx
+        local dz = point.Z - cz
+        local dist = math.sqrt(dx * dx + dz * dz)
+        return dist <= (radius + 60)
+            and point.Y >= (baseY - 120)
+            and point.Y <= (peakY + 120)
+    end
+
+    -- Fallback: MountainZones OBB parts
+    local things = Workspace:FindFirstChild("Things")
+    local zones = things and things:FindFirstChild("MountainZones")
+    if zones then
+        for _, child in ipairs(zones:GetChildren()) do
+            if child:IsA("BasePart") and child.Name == "MountainZone" and isPointInPart(point, child) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function isInNoDigZone(point)
+    local things = Workspace:FindFirstChild("Things")
+    if not things then
+        return false
+    end
+
+    local noDig = things:FindFirstChild("NoDigging")
+    if noDig then
+        if noDig:IsA("BasePart") and isPointInPart(point, noDig) then
+            return true
+        end
+        for _, child in ipairs(noDig:GetChildren()) do
+            if child:IsA("BasePart") and isPointInPart(point, child) then
+                return true
+            end
+        end
+    end
+
+    local zones = things:FindFirstChild("Zones")
+    if zones then
+        for _, child in ipairs(zones:GetChildren()) do
+            if child:IsA("BasePart") and child.Name == "NoDigZone" and isPointInPart(point, child) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+-- True when player is at base / not on the mountain (hysteresis + Y bounds)
 local function isAtBase()
     local root = getRoot()
     if not root then
         return true
     end
 
-    local spot = mountainSpot()
-    if not spot then
-        return root.Position.Y < 80
+    local pos = root.Position
+
+    -- Prefer official mountain zone check
+    if isInMountainZone(pos) then
+        S.wasAtBase = false
+        return false
     end
 
-    local flat = Vector2.new(root.Position.X - spot.X, root.Position.Z - spot.Z)
+    local spot = mountainSpot()
+    if not spot then
+        S.wasAtBase = pos.Y < 80
+        return S.wasAtBase
+    end
+
+    local flat = Vector2.new(pos.X - spot.X, pos.Z - spot.Z)
     local dist = flat.Magnitude
     local span = mountainSpan()
 
-    -- Hysteresis: harder to enter base, easier to leave (stay "on mountain" near edge)
     if S.wasAtBase then
-        -- Need to get closer to mountain to leave base state
         S.wasAtBase = dist > (span + 20)
     else
-        -- Need to go farther out to count as base
         S.wasAtBase = dist > (span + 55)
     end
 
@@ -6289,9 +6385,8 @@ do
             return
         end
 
-        -- Safety: Fast Dig disabled while at base
-        if isAtBase() then
-            -- Reset clock so leaving base resumes at full dig speed (no lag backlog)
+        -- Safety: Fast Dig disabled while at base / outside mountain
+        if isAtBase() or not isInMountainZone(root.Position) then
             swingClock = 0
             return
         end
@@ -6299,6 +6394,11 @@ do
         -- Dig at the look-direction hit point
         local aim = getLookDigAim(camera, character)
         if not aim then
+            return
+        end
+
+        -- Skip dig in no-dig zones
+        if isInNoDigZone(aim) then
             return
         end
 
@@ -6532,36 +6632,62 @@ do
                 return
             end
 
-            -- Random low positions inside plot region (raycast ke tanah, bukan langit)
+            -- PlotMath-style placement: local coords inside Region, floor height, isInBounds
             local cf = region.CFrame
             local size = region.Size
-            -- stay inside plot with small padding
-            local halfX = math.max(size.X * 0.4, 2)
-            local halfZ = math.max(size.Z * 0.4, 2)
-            local topY = region.Position.Y + size.Y * 0.5 + 8
-            local bottomY = region.Position.Y - size.Y * 0.5 - 5
+            local half = size * 0.5
+            -- padding so not on edge
+            local padX = math.max(half.X - 1.5, 1)
+            local padZ = math.max(half.Z - 1.5, 1)
+            local runeHalfY = 1 -- default rune height half
 
-            local rayParams = RaycastParams.new()
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            rayParams.FilterDescendantsInstances = { LocalPlayer.Character, plot }
-            rayParams.IgnoreWater = true
+            local function worldToLocal(world)
+                local p = cf:PointToObjectSpace(world)
+                return Vector3.new(p.X, p.Y + half.Y, p.Z)
+            end
 
-            local function randomGroundPos()
-                for _ = 1, 12 do
-                    local u = (math.random() - 0.5) * 2
-                    local v = (math.random() - 0.5) * 2
-                    local localPos = Vector3.new(u * halfX, 0, v * halfZ)
-                    local world = cf:PointToWorldSpace(localPos)
-                    local origin = Vector3.new(world.X, topY, world.Z)
-                    local hit = Workspace:Raycast(origin, Vector3.new(0, bottomY - topY, 0), rayParams)
-                    if hit and hit.Position then
-                        -- slightly above surface so placement is valid
-                        return hit.Position + Vector3.new(0, 0.15, 0)
+            local function isInBoundsLocal(localPos, objectSize)
+                local oh = (objectSize or Vector3.new(2, 2, 2)) * 0.5
+                if math.abs(localPos.X) > half.X then
+                    return false
+                end
+                if math.abs(localPos.Z) > half.Z then
+                    return false
+                end
+                return (localPos.Y - oh.Y) >= -0.01
+            end
+
+            local function placementWorldPos(objectSize)
+                local oh = (objectSize or Vector3.new(2, 2, 2)) * 0.5
+                for _ = 1, 16 do
+                    local lx = (math.random() - 0.5) * 2 * padX
+                    local lz = (math.random() - 0.5) * 2 * padZ
+                    -- floor of region + half object height (PlotMath.placementLocalCF style)
+                    local ly = oh.Y + 0.05
+                    local localPos = Vector3.new(lx, ly, lz)
+                    if isInBoundsLocal(localPos, objectSize) then
+                        -- convert local (with Y from bottom) back to world
+                        local bottomLocal = Vector3.new(lx, ly - half.Y, lz)
+                        return cf:PointToWorldSpace(bottomLocal)
                     end
                 end
-                -- fallback: near region center, low
-                local c = region.Position
-                return Vector3.new(c.X, region.Position.Y - size.Y * 0.5 + 1, c.Z)
+                -- center floor fallback
+                local bottomLocal = Vector3.new(0, oh.Y + 0.05 - half.Y, 0)
+                return cf:PointToWorldSpace(bottomLocal)
+            end
+
+            local function toolSize(tool)
+                local handle = tool and tool:FindFirstChild("Handle")
+                if handle and handle:IsA("BasePart") then
+                    return handle.Size
+                end
+                local fx = tonumber(tool and tool:GetAttribute("FinalSizeX"))
+                local fy = tonumber(tool and tool:GetAttribute("FinalSizeY"))
+                local fz = tonumber(tool and tool:GetAttribute("FinalSizeZ"))
+                if fx and fy and fz then
+                    return Vector3.new(fx, fy, fz)
+                end
+                return Vector3.new(2, 2, 2)
             end
 
             task.spawn(function()
@@ -6573,7 +6699,8 @@ do
                         continue
                     end
 
-                    local pos = randomGroundPos()
+                    local size = toolSize(tool)
+                    local pos = placementWorldPos(size)
                     local yaw = math.random() * math.pi * 2
 
                     if humanoid and tool.Parent ~= LocalPlayer.Character then
