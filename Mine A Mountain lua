@@ -103,25 +103,25 @@ local HoldComplete = findRemote("CrystalHoldComplete")
 local ToggleFavorite = findRemote("ToggleFavorite")
 
 local ESP = {
-    font = Enum.Font.GothamBold,
+    font = Enum.Font.GothamMedium,
     sweep = 0.7,
     budget = 0.004,
-    offset = Vector3.new(0, 3, 0),
-    width = 250,
-    height = 66,
-    text = 16,
+    offset = Vector3.new(0, 3.2, 0),
+    width = 260,
+    height = 70,
+    text = 15,
     ttl = 5,
 }
 
 pcall(function()
-    ESP.font = Enum.Font.LuckiestGuy
+    ESP.font = Enum.Font.Gotham
 end)
 
 local PLAYER = {
-    offset = Vector3.new(0, -8, 0),
-    width = 220,
-    height = 44,
-    text = 15,
+    offset = Vector3.new(0, -7.5, 0),
+    width = 230,
+    height = 46,
+    text = 14,
 }
 
 local PACE = {
@@ -235,7 +235,10 @@ local Window = WindUI:CreateWindow({
 local Tabs = {
     esp = Window:Tab({ Title = "ESP", Icon = "eye" }),
     farm = Window:Tab({ Title = "Farm", Icon = "pickaxe" }),
-    utility = Window:Tab({ Title = "Utility", Icon = "wrench" }),
+    runes = Window:Tab({ Title = "Runes", Icon = "sparkles" }),
+    shop = Window:Tab({ Title = "Shop", Icon = "shopping-bag" }),
+    movement = Window:Tab({ Title = "Movement", Icon = "person-standing" }),
+    teleports = Window:Tab({ Title = "Teleports", Icon = "map-pin" }),
     settings = Window:Tab({ Title = "Settings", Icon = "sliders-horizontal" }),
 }
 
@@ -741,8 +744,8 @@ local function newLabel(name, parent, order, total, color, rich, maxText)
     label.Font = ESP.font
     label.TextScaled = true
     label.TextTransparency = 0
-    label.TextStrokeTransparency = 0
-    label.TextStrokeColor3 = COLORS.stroke
+    label.TextStrokeTransparency = 0.35
+    label.TextStrokeColor3 = Color3.fromRGB(12, 12, 16)
     label.TextColor3 = color
     label.RichText = rich == true
     label.Text = ""
@@ -750,6 +753,7 @@ local function newLabel(name, parent, order, total, color, rich, maxText)
 
     local constraint = Instance.new("UITextSizeConstraint")
     constraint.MaxTextSize = maxText
+    constraint.MinTextSize = 8
     constraint.Parent = label
 
     return label, constraint
@@ -2988,32 +2992,11 @@ do
                         BOULDER_WIDTH,
                         BOULDER_HEIGHT
                     )
-                    local sel = Instance.new("SelectionBox")
-                    sel.Name = "FayyMengBoulderOutline"
-                    sel.Adornee = model
-                    sel.Color3 = info.color
-                    sel.LineThickness = 0.08
-                    sel.SurfaceColor3 = info.color
-                    sel.SurfaceTransparency = 0.7
-                    sel.Parent = EspHolder
-                    entry.selection = sel
-
-                    local box = Instance.new("BoxHandleAdornment")
-                    box.Name = "FayyMengBoulderBox"
-                    box.Adornee = anchor
-                    box.AlwaysOnTop = true
-                    box.ZIndex = 5
-                    box.Size = anchor.Size
-                    box.Color3 = info.color
-                    box.Transparency = 0.55
-                    box.Parent = EspHolder
-                    entry.box = box
-
                     local hl = Instance.new("Highlight")
                     hl.Name = "FayyMengBoulderHighlight"
                     hl.Adornee = model
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.FillTransparency = 0.8
+                    hl.FillTransparency = 0.72
                     hl.OutlineTransparency = 0
                     hl.FillColor = info.color
                     hl.OutlineColor = info.color
@@ -3025,25 +3008,6 @@ do
 
                 if entry.gui.Adornee ~= anchor then
                     entry.gui.Adornee = anchor
-                end
-                if entry.selection then
-                    entry.selection.Adornee = model
-                    entry.selection.Color3 = info.color
-                    entry.selection.SurfaceColor3 = info.color
-                end
-                if entry.box then
-                    entry.box.Adornee = anchor
-                    entry.box.Color3 = info.color
-                    pcall(function()
-                        if model:IsA("Model") then
-                            local size = model:GetExtentsSize()
-                            entry.box.Size = size
-                            entry.box.CFrame = CFrame.new(model:GetPivot().Position - anchor.Position)
-                        else
-                            entry.box.Size = anchor.Size
-                            entry.box.CFrame = CFrame.new()
-                        end
-                    end)
                 end
                 if entry.highlight then
                     entry.highlight.Adornee = model
@@ -3347,6 +3311,7 @@ do
             local frame = camera.CFrame
             local direction = Vector3.zero
 
+            -- PC keys (IY style)
             if not UserInputService:GetFocusedTextBox() then
                 for _, entry in ipairs(FLY_KEYS) do
                     if UserInputService:IsKeyDown(entry.key) then
@@ -3355,8 +3320,36 @@ do
                         elseif entry.axis == "right" then
                             direction += frame.RightVector * entry.sign
                         else
-                            direction += Vector3.yAxis * entry.sign
+                            direction += frame.UpVector * entry.sign
                         end
+                    end
+                end
+            end
+
+            -- Mobile / thumbstick: Humanoid.MoveDirection (same approach as Infinite Yield mobile)
+            if humanoid then
+                local md = humanoid.MoveDirection
+                if md.Magnitude > 0.05 then
+                    local look = Vector3.new(frame.LookVector.X, 0, frame.LookVector.Z)
+                    local right = Vector3.new(frame.RightVector.X, 0, frame.RightVector.Z)
+                    if look.Magnitude > 0.05 then
+                        look = look.Unit
+                    else
+                        look = Vector3.new(0, 0, -1)
+                    end
+                    if right.Magnitude > 0.05 then
+                        right = right.Unit
+                    else
+                        right = Vector3.new(1, 0, 0)
+                    end
+                    -- Project move direction onto camera-relative ground plane + keep Y from keys
+                    local flatMd = Vector3.new(md.X, 0, md.Z)
+                    if flatMd.Magnitude > 0.05 then
+                        direction += flatMd.Unit
+                    end
+                    -- If player is using jump on mobile while flying, lift a bit
+                    if UserInputService.TouchEnabled and humanoid.Jump then
+                        direction += frame.UpVector
                     end
                 end
             end
@@ -3367,9 +3360,8 @@ do
                 velocity.Velocity = Vector3.zero
             end
 
-            local flat = Vector3.new(frame.LookVector.X, 0, frame.LookVector.Z)
-            if flat.Magnitude > 0.05 then
-                gyro.CFrame = CFrame.new(root.Position, root.Position + flat)
+            if gyro then
+                gyro.CFrame = frame
             end
         end
 
@@ -3866,7 +3858,7 @@ end
 
 do
     local function install()
-        local TopBox = Tabs.utility:Section({ Title = "Top Crystals", Icon = "trophy", Opened = true })
+        local TopBox = Tabs.teleports:Section({ Title = "Top Crystals", Icon = "trophy", Opened = true })
 
         local function fmtValue(_, score) return formatShort(score, "$") end
         local function fmtLuck(_, score) return formatLuck(score) end
@@ -3985,7 +3977,7 @@ end
 
 do
     local function install()
-        local MoveBox = Tabs.utility:Section({ Title = "Movement", Icon = "zap", Opened = true })
+        local MoveBox = Tabs.movement:Section({ Title = "Movement", Icon = "zap", Opened = true })
 
         MoveBox:Toggle({
             Title = "Speed Boost",
@@ -4082,23 +4074,7 @@ do
             aimKeybind = key
         end
 
-        local TeleportBox = Tabs.utility:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
-
-        TeleportBox:Toggle({
-            Title = "Aim Teleport",
-            Value = false,
-            Callback = function(value)
-                S.aimTpEnabled = value
-            end
-        })
-
-        TeleportBox:Keybind({
-            Title = "Aim Teleport Key",
-            Value = "F",
-            Callback = function(v)
-                updateKeybind(v)
-            end
-        })
+        local TeleportBox = Tabs.teleports:Section({ Title = "Teleports", Icon = "crosshair", Opened = true })
 
         TeleportBox:Button({
             Title = "TP Home",
@@ -6343,25 +6319,6 @@ do
             Callback = setFastDig,
         })
 
-        local DigBox = Tabs.farm:Section({ Title = "Dig Speed", Icon = "gauge", Opened = false })
-
-        DigBox:Paragraph({
-            Title = "Dig Control",
-        })
-
-        DigBox:Slider({
-            Title = "Dig Speed",
-            Step = 0.05,
-            Value = {
-                Min = 0.1,
-                Max = 1,
-                Default = 0.4,
-            },
-            Callback = function(value)
-                S.digSpeedMult = tonumber(value) or 0.4
-                swingClock = 0
-            end
-        })
     end
 
     install()
@@ -6376,7 +6333,7 @@ end
 
 do
     local function install()
-        local PlotBox = Tabs.utility:Section({ Title = "Plot / Runes", Icon = "map-pin", Opened = true })
+        local PlotBox = Tabs.runes:Section({ Title = "Plot / Runes", Icon = "map-pin", Opened = true })
 
         local RUNE_LIST = {
             "Luck Rune", "Haste Rune", "Storm Rune", "Weight Rune",
@@ -6386,6 +6343,8 @@ do
 
         local selectedRunes = {}
         local placeAmount = 1
+        local dropAmount = 1
+        local selectedDropRunes = {}
 
         local function getOwnedPlotModel()
             local things = Workspace:FindFirstChild("Things")
@@ -6628,6 +6587,65 @@ do
                     Content = string.format("Placed %d rune(s)", placed),
                     Duration = 3,
                     Icon = placed > 0 and "check" or "alert-circle",
+                })
+            end)
+        end
+
+        local function dropSelectedRunes()
+            if next(selectedDropRunes) == nil then
+                WindUI:Notify({
+                    Title = "Drop Runes",
+                    Content = "Select at least 1 rune first",
+                    Duration = 3,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            local remote = findRemote("CrystalDropRequest")
+            if not remote then
+                WindUI:Notify({
+                    Title = "Drop Runes",
+                    Content = "CrystalDropRequest missing",
+                    Duration = 3,
+                    Icon = "alert-circle",
+                })
+                return
+            end
+
+            local amount = parseAmount(dropAmount)
+            dropAmount = amount
+
+            local names = {}
+            for name in pairs(selectedDropRunes) do
+                names[#names + 1] = name
+            end
+            table.sort(names)
+
+            if S._droppingRunes then
+                return
+            end
+            S._droppingRunes = true
+
+            task.spawn(function()
+                local dropped = 0
+                for _, runeName in ipairs(names) do
+                    for i = 1, amount do
+                        local ok = pcall(function()
+                            remote:FireServer(runeName)
+                        end)
+                        if ok then
+                            dropped += 1
+                        end
+                        task.wait(0.35)
+                    end
+                end
+                S._droppingRunes = false
+                WindUI:Notify({
+                    Title = "Drop Runes",
+                    Content = string.format("Dropped %d", dropped),
+                    Duration = 2,
+                    Icon = dropped > 0 and "check" or "alert-circle",
                 })
             end)
         end
@@ -6910,6 +6928,47 @@ do
             Callback = placeSelectedRunes,
         })
 
+        PlotBox:Dropdown({
+            Title = "Select Runes to Drop",
+            Values = RUNE_LIST,
+            Multi = true,
+            AllowNone = true,
+            Callback = function(option)
+                table.clear(selectedDropRunes)
+                if type(option) == "table" then
+                    for key, flag in pairs(option) do
+                        if type(key) == "string" and (flag == true or flag == "true") then
+                            selectedDropRunes[key] = true
+                        elseif type(flag) == "string" then
+                            selectedDropRunes[flag] = true
+                        end
+                    end
+                end
+            end
+        })
+
+        PlotBox:Input({
+            Title = "Amount Per Drop",
+            Value = "1",
+            Placeholder = "1",
+            Callback = function(value)
+                if type(value) == "table" then
+                    value = value.Text or value.Value or value[1] or value.Input or "1"
+                end
+                local n = tonumber(tostring(value):match("[%d%.]+"))
+                if n and n > 0 then
+                    dropAmount = math.max(1, math.floor(n))
+                else
+                    dropAmount = 1
+                end
+            end
+        })
+
+        PlotBox:Button({
+            Title = "Drop Selected Runes",
+            Callback = dropSelectedRunes,
+        })
+
         PlotBox:Button({
             Title = "Pickup All Placed Runes",
             Callback = pickupAllPlacedRunes,
@@ -6969,18 +7028,18 @@ do
             end
         })
 
-        local ShopBox = Tabs.utility:Section({ Title = "Shops", Icon = "shopping-bag", Opened = false })
+        local ShopBox = Tabs.shop:Section({ Title = "Shops", Icon = "shopping-bag", Opened = true })
 
         ShopBox:Button({
             Title = "Open Bomb Shop",
             Callback = function()
-                local ok = pcall(function()
+                pcall(function()
                     local remote = ReplicatedStorage:FindFirstChild("Remotes")
                     remote = remote and remote:FindFirstChild("BombOpen")
                     local barry = Workspace:FindFirstChild("Things")
                     barry = barry and barry:FindFirstChild("BomberBarry")
                     if not remote or not barry then
-                        error("BombOpen or BomberBarry missing")
+                        return
                     end
                     if typeof(firesignal) == "function" then
                         firesignal(remote.OnClientEvent, barry)
@@ -6993,6 +7052,37 @@ do
                                         conn:Fire(barry)
                                     elseif conn.Function then
                                         conn.Function(barry)
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end)
+            end
+        })
+
+        ShopBox:Button({
+            Title = "Open Backpack Shop",
+            Callback = function()
+                pcall(function()
+                    local remote = ReplicatedStorage:FindFirstChild("Remotes")
+                    remote = remote and remote:FindFirstChild("UpgradeOpen")
+                    local npc = Workspace:FindFirstChild("Things")
+                    npc = npc and npc:FindFirstChild("ProClimber")
+                    if not remote or not npc then
+                        return
+                    end
+                    if typeof(firesignal) == "function" then
+                        firesignal(remote.OnClientEvent, npc)
+                    else
+                        local handlers = getconnections and getconnections(remote.OnClientEvent)
+                        if handlers then
+                            for _, conn in ipairs(handlers) do
+                                pcall(function()
+                                    if conn.Fire then
+                                        conn:Fire(npc)
+                                    elseif conn.Function then
+                                        conn.Function(npc)
                                     end
                                 end)
                             end
