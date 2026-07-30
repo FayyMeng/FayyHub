@@ -105,8 +105,8 @@ local ToggleFavorite = findRemote("ToggleFavorite")
 
 local ESP = {
     font = Enum.Font.GothamBold,
-    sweep = 0.35,
-    budget = 0.008,
+    sweep = 0.7,
+    budget = 0.004,
     offset = Vector3.new(0, 3, 0),
     width = 250,
     height = 66,
@@ -128,8 +128,10 @@ local PLAYER = {
 local PACE = {
     boost = 35,
     normal = 16,
-    stats = 0.25,
-    distance = 0.05,
+    stats = 0.5,
+    distance = 0.2,
+    playerEsp = 0.25,
+    pickup = 0.08,
 }
 
 local TP = {
@@ -156,9 +158,9 @@ local PICK = {
     aimRange = 5000,
     aimDot = 0.995,
     range = 13,
-    cooldown = 0.04,
+    cooldown = 0.06,
     restore = 0.2,
-    burst = 8,
+    burst = 6,
     retry = 0.15,
     forget = 5,
     pad = 4,
@@ -709,7 +711,7 @@ end
 
 local function eachContainer(fn)
     local now = os.clock()
-    local stale = #containerList == 0 or now - containerClock >= 0.5
+    local stale = #containerList == 0 or now - containerClock >= 1.0
 
     if not stale then
         for _, container in ipairs(containerList) do
@@ -1267,29 +1269,33 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
 
     local now = os.clock()
 
-    for inst, expiry in pairs(S.candidates) do
-        if not inst.Parent then
-            S.candidates[inst] = nil
-        elseif isCrystal(inst) then
-            S.candidates[inst] = nil
-            trackCrystal(inst)
-        elseif now > expiry then
-            S.candidates[inst] = nil
+    if next(S.candidates) ~= nil then
+        for inst, expiry in pairs(S.candidates) do
+            if not inst.Parent then
+                S.candidates[inst] = nil
+            elseif isCrystal(inst) then
+                S.candidates[inst] = nil
+                trackCrystal(inst)
+            elseif now > expiry then
+                S.candidates[inst] = nil
+            end
         end
     end
 
-    local deadline = now + ESP.budget
     if next(S.dirty) ~= nil then
-    for inst in pairs(S.dirty) do
-        local ok, err = pcall(syncCrystal, inst)
-        if not ok then
-            S.dirty[inst] = nil
-            reportError("sync", err)
+        local deadline = now + ESP.budget
+        local processed = 0
+        for inst in pairs(S.dirty) do
+            local ok, err = pcall(syncCrystal, inst)
+            if not ok then
+                S.dirty[inst] = nil
+                reportError("sync", err)
+            end
+            processed += 1
+            if processed >= 12 or os.clock() > deadline then
+                break
+            end
         end
-        if os.clock() > deadline then
-            break
-        end
-    end
     end
 
     S.sweepAccumulator += deltaTime
@@ -1307,12 +1313,14 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    S.distanceAccumulator += deltaTime
-    if S.distanceAccumulator >= PACE.distance then
-        S.distanceAccumulator = 0
-        local ok, err = pcall(updateDistances)
-        if not ok then
-            reportError("distance", err)
+    if S.espCount > 0 then
+        S.distanceAccumulator += deltaTime
+        if S.distanceAccumulator >= PACE.distance then
+            S.distanceAccumulator = 0
+            local ok, err = pcall(updateDistances)
+            if not ok then
+                reportError("distance", err)
+            end
         end
     end
 end)
@@ -1755,7 +1763,7 @@ local pickupParams = OverlapParams.new()
 pickupParams.FilterType = Enum.RaycastFilterType.Exclude
 
 pcall(function()
-    pickupParams.MaxParts = 300
+    pickupParams.MaxParts = 120
     pickupParams.RespectCanCollide = false
 end)
 
@@ -2269,10 +2277,15 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
+    -- Throttled auto-pickup (not every frame)
     if S.autoPickupActive or S.pickupValueActive or S.pickupLuckActive then
-        local ok, err = pcall(pickupStep)
-        if not ok then
-            reportError("pickup", err)
+        S._pickupAcc = (S._pickupAcc or 0) + deltaTime
+        if S._pickupAcc >= (PACE.pickup or 0.08) then
+            S._pickupAcc = 0
+            local ok, err = pcall(pickupStep)
+            if not ok then
+                reportError("pickup", err)
+            end
         end
     end
 
@@ -2296,10 +2309,15 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
+    -- Throttled player ESP
     if S.playerEspActive then
-        local ok, err = pcall(updatePlayerEsp)
-        if not ok then
-            reportError("playerEsp", err)
+        S._playerEspAcc = (S._playerEspAcc or 0) + deltaTime
+        if S._playerEspAcc >= (PACE.playerEsp or 0.25) then
+            S._playerEspAcc = 0
+            local ok, err = pcall(updatePlayerEsp)
+            if not ok then
+                reportError("playerEsp", err)
+            end
         end
     end
 
@@ -2664,10 +2682,10 @@ do
         local BOULDER_OFFSET = Vector3.new(0, 7, 0)
         local BOULDER_WIDTH = 300
         local BOULDER_HEIGHT = 78
-        local BOULDER_STEP = 0.4
+        local BOULDER_STEP = 0.75
 
         local GRAB_RANGE = 20
-        local GRAB_STEP = 0.15
+        local GRAB_STEP = 0.25
         local GRAB_LIMIT = 4
         local GRAB_RETRY = 0.2
 
@@ -3159,6 +3177,10 @@ do
         end
 
         mountainConn = RunService.Heartbeat:Connect(function(deltaTime)
+            if not boulderEsp and not autoGrab then
+                return
+            end
+
             if boulderEsp then
                 boulderClock += deltaTime
                 if boulderClock >= BOULDER_STEP then
@@ -4462,6 +4484,7 @@ do
         local lootUntil = 0
         local statusText = "Idle"
         local noTargetClock = 0
+        local filterPickClock = 0
 
         local function toggleValue(name)
             return false
@@ -5075,12 +5098,16 @@ do
 
             local now = os.clock()
 
-            -- Priority: pickup nearby crystals matching Value/Luck filters before boulder work
+            -- Priority: filtered crystal pickup (throttled)
             if S.pickupValueActive or S.pickupLuckActive then
-                local free = backpackFree()
-                if free > 0 and tryFilteredCrystalPickup(root.Position, free) then
-                    statusText = "Picking filtered crystals"
-                    return
+                filterPickClock = (filterPickClock or 0) + deltaTime
+                if filterPickClock >= 0.12 then
+                    filterPickClock = 0
+                    local free = backpackFree()
+                    if free > 0 and tryFilteredCrystalPickup(root.Position, free) then
+                        statusText = "Picking filtered crystals"
+                        return
+                    end
                 end
             end
 
@@ -6157,8 +6184,8 @@ do
     -- Deteksi mode mining crystal (setelah pickup)
     local miningCheckClock = 0
     local isMiningCrystal = false
-    local MINING_CHECK_GAP = 0.2
-    local MINING_RANGE = 25
+    local MINING_CHECK_GAP = 0.35
+    local MINING_RANGE = 18
 
     -- Match boulder / auto-mine dig style
     local SWING_BURST = 6
@@ -6167,7 +6194,7 @@ do
     local miningParams = OverlapParams.new()
     miningParams.FilterType = Enum.RaycastFilterType.Exclude
     pcall(function()
-        miningParams.MaxParts = 80
+        miningParams.MaxParts = 40
         miningParams.RespectCanCollide = false
     end)
 
@@ -6296,39 +6323,25 @@ do
         local cf = camera.CFrame
         local look = cf.LookVector
         local right = cf.RightVector
-        local up = Vector3.new(0, 1, 0)
+        local up = Vector3.yAxis
 
-        -- Flat forward (ignore camera pitch for side offsets)
         local flat = Vector3.new(look.X, 0, look.Z)
         if flat.Magnitude < 0.05 then
             flat = Vector3.new(right.X, 0, right.Z)
         end
         flat = flat.Unit
-        local side = Vector3.new(-flat.Z, 0, flat.X) -- left/right on ground plane
+        local side = Vector3.new(-flat.Z, 0, flat.X)
 
-        -- digRadius ~4 from ToolConfig Pickaxe; cover front/back/left/right/up, NOT down
+        -- digRadius server-side ~4; 7 points cover F/B/L/R/Up without excess remotes
         local r = 4
-        local points = {
-            aim,                          -- center hit
-            aim + flat * r,               -- depan
-            aim - flat * r,               -- belakang
-            aim + side * r,               -- kanan
-            aim - side * r,               -- kiri
-            aim + up * r,                 -- atas
-            aim + (flat + side).Unit * r,
-            aim + (flat - side).Unit * r,
-            aim + (-flat + side).Unit * r,
-            aim + (-flat - side).Unit * r,
-            aim + flat * (r * 0.5) + up * (r * 0.5),
-            aim - flat * (r * 0.5) + up * (r * 0.5),
-            aim + side * (r * 0.5) + up * (r * 0.5),
-            aim - side * (r * 0.5) + up * (r * 0.5),
-        }
-
         pcall(function()
-            for _, point in ipairs(points) do
-                event:FireServer(name, point)
-            end
+            event:FireServer(name, aim)
+            event:FireServer(name, aim + flat * r)
+            event:FireServer(name, aim - flat * r)
+            event:FireServer(name, aim + side * r)
+            event:FireServer(name, aim - side * r)
+            event:FireServer(name, aim + up * r)
+            event:FireServer(name, aim + look * 1.5)
         end)
     end
 
