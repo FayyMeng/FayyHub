@@ -3773,10 +3773,6 @@ do
             end
         })
 
-        CrystalBox:Paragraph({
-            Title = "Min Value",
-        })
-
         local function setMinValue(text)
             local parsed = parseValue(text)
             if not parsed then
@@ -3805,10 +3801,6 @@ do
         end
 
         local LuckBox = Tabs.esp
-
-        LuckBox:Paragraph({
-            Title = "Luck ESP",
-        })
 
         LuckBox:Toggle({
             Title = "Luck ESP",
@@ -3933,9 +3925,7 @@ do
         PickupBox:Toggle({
             Title = "Auto Pickup",
             Value = false,
-            Callback = function(value)
-                S.autoPickupActive = value
-            end
+            Callback = setAutoPickup
         })
 
         PickupBox:Toggle({
@@ -3950,27 +3940,11 @@ do
             Callback = Mountain.setAutoGrab
         })
 
-        PickupBox:Paragraph({
-            Title = "Pickup by Value / Luck",
-        })
-
         PickupBox:Toggle({
             Title = "Auto Pickup by Value",
             Value = false,
             Callback = function(value)
-                S.pickupValueActive = value
-            end
-        })
-
-        PickupBox:Input({
-            Title = "Min Pickup Value",
-            Value = "1b",
-            Type = "Input",
-            Callback = function(input)
-                local parsed = parseValue(input)
-                if parsed then
-                    S.pickupMinValue = math.max(parsed, 0)
-                end
+                S.pickupValueActive = value == true
             end
         })
 
@@ -3978,18 +3952,30 @@ do
             Title = "Auto Pickup by Luck",
             Value = false,
             Callback = function(value)
-                S.pickupLuckActive = value
+                S.pickupLuckActive = value == true
+            end
+        })
+
+        PickupBox:Input({
+            Title = "Min Pickup Value",
+            Value = "",
+            Placeholder = "500k / 1b",
+            Callback = function(text)
+                local parsed = parseValue(text)
+                if parsed then
+                    S.pickupMinValue = math.max(parsed, 0)
+                end
             end
         })
 
         PickupBox:Input({
             Title = "Min Pickup Luck (%)",
             Value = "0",
-            Type = "Input",
-            Callback = function(input)
-                local parsed = tonumber(input)
-                if parsed then
-                    S.pickupMinLuck = math.max(parsed, 0)
+            Placeholder = "1 / 50",
+            Callback = function(text)
+                local n = tonumber(text)
+                if n then
+                    S.pickupMinLuck = math.max(n, 0)
                 end
             end
         })
@@ -4113,6 +4099,13 @@ do
             Title = "TP Home",
             Callback = function()
                 fireRemote(GoHome, "home")
+            end
+        })
+
+        TeleportBox:Button({
+            Title = "TP Mountain Peak",
+            Callback = function()
+                teleportToMountainPeak()
             end
         })
 
@@ -4389,6 +4382,90 @@ do
     install()
 end
 
+
+
+local function mountainPeakPosition()
+    local cx = Workspace:GetAttribute("MountainCenterX")
+    local cz = Workspace:GetAttribute("MountainCenterZ")
+    local peakY = Workspace:GetAttribute("MountainPeakY")
+    local baseY = Workspace:GetAttribute("MountainBaseY")
+    local radius = Workspace:GetAttribute("MountainRadius")
+
+    if typeof(cx) ~= "number" or typeof(cz) ~= "number" then
+        local spot = mountainSpot()
+        if not spot then
+            return nil
+        end
+        cx, cz = spot.X, spot.Z
+    end
+    if typeof(radius) ~= "number" or radius < 20 then
+        radius = 150
+    end
+    if typeof(peakY) ~= "number" then
+        peakY = (typeof(baseY) == "number" and baseY or 0) + 900
+    end
+    if typeof(baseY) ~= "number" then
+        baseY = 0
+    end
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local char = LocalPlayer.Character
+    if char then
+        rayParams.FilterDescendantsInstances = { char }
+    end
+    rayParams.IgnoreWater = true
+
+    local bestPos = Vector3.new(cx, peakY, cz)
+    local bestY = -math.huge
+    local samples = {
+        Vector3.new(0, 0, 0),
+        Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
+        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1),
+        Vector3.new(0.7, 0, 0.7), Vector3.new(-0.7, 0, 0.7),
+        Vector3.new(0.7, 0, -0.7), Vector3.new(-0.7, 0, -0.7),
+    }
+    local rings = { 0, radius * 0.05, radius * 0.1, radius * 0.18, radius * 0.28 }
+
+    for _, ring in ipairs(rings) do
+        for _, dir in ipairs(samples) do
+            local ox = cx + dir.X * ring
+            local oz = cz + dir.Z * ring
+            local origin = Vector3.new(ox, peakY + 250, oz)
+            local hit = Workspace:Raycast(origin, Vector3.new(0, -(peakY - baseY + 400), 0), rayParams)
+            if hit and hit.Position.Y > bestY then
+                bestY = hit.Position.Y
+                bestPos = hit.Position
+            end
+        end
+    end
+
+    if bestY < -1e8 then
+        bestPos = Vector3.new(cx, peakY, cz)
+    end
+
+    return bestPos + Vector3.new(0, 6, 0)
+end
+
+local function teleportToMountainPeak()
+    local peak = mountainPeakPosition()
+    if not peak then
+        return false
+    end
+    requestStream(peak)
+    if Move and Move.glide then
+        pcall(Move.setNoclip, true)
+        pcall(Move.glide, CFrame.new(peak), peak)
+        task.delay(3, function()
+            if Move and Move.glideStop then
+                pcall(Move.glideStop)
+            end
+        end)
+    else
+        pcall(teleportTo, peak)
+    end
+    return true
+end
 
 local function nearestOtherPlayer(origin)
     local best, bestDist = nil, math.huge
@@ -5517,8 +5594,10 @@ do
 
 
 
-        FarmBox:Paragraph({
-            Title = "Auto Boulders",
+        FarmBox:Toggle({
+            Title = "Auto Farm",
+            Value = false,
+            Callback = setActive
         })
 
         FarmBox:Dropdown({
@@ -5527,12 +5606,6 @@ do
             Multi = true,
             AllowNone = true,
             Callback = setTargets
-        })
-
-        FarmBox:Toggle({
-            Title = "Auto Farm",
-            Value = false,
-            Callback = setActive
         })
 
         local StatusLabel = FarmBox:Paragraph({
@@ -6249,10 +6322,6 @@ do
 
         local MoneyBox = Tabs.money
 
-        MoneyBox:Paragraph({
-            Title = "Money Farming",
-        })
-
         MoneyBox:Toggle({
             Title = "Auto Farm",
             Value = false,
@@ -6477,10 +6546,6 @@ do
 
     local function install()
         local FastDigBox = Tabs.dig
-
-        FastDigBox:Paragraph({
-            Title = "Fast Dig",
-        })
 
         FastDigBox:Toggle({
             Title = "Fast Dig",
