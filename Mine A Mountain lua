@@ -294,6 +294,7 @@ local S = {
     safeReturnPos       = nil,
     safeFleeing         = false,
     farmActive          = false,
+    _joinTarget         = "",
     wasAtBase           = false,
     miningBoulder       = nil,
     pickupValueActive   = false,
@@ -2691,6 +2692,124 @@ local function isAtBase()
     return S.wasAtBase == true
 end
 
+local function mountainPeakPosition()
+    local cx = Workspace:GetAttribute("MountainCenterX")
+    local cz = Workspace:GetAttribute("MountainCenterZ")
+    local peakY = Workspace:GetAttribute("MountainPeakY")
+    local baseY = Workspace:GetAttribute("MountainBaseY")
+    local radius = Workspace:GetAttribute("MountainRadius")
+
+    if typeof(cx) ~= "number" or typeof(cz) ~= "number" then
+        local spot = mountainSpot()
+        if not spot then
+            return nil
+        end
+        cx, cz = spot.X, spot.Z
+    end
+    if typeof(radius) ~= "number" or radius < 20 then
+        radius = 150
+    end
+    if typeof(peakY) ~= "number" then
+        peakY = (typeof(baseY) == "number" and baseY or 0) + 900
+    end
+    if typeof(baseY) ~= "number" then
+        baseY = 0
+    end
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local char = LocalPlayer.Character
+    if char then
+        rayParams.FilterDescendantsInstances = { char }
+    end
+    rayParams.IgnoreWater = true
+
+    local bestPos = Vector3.new(cx, peakY, cz)
+    local bestY = -math.huge
+    local samples = {
+        Vector3.new(0, 0, 0),
+        Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
+        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1),
+        Vector3.new(0.7, 0, 0.7), Vector3.new(-0.7, 0, 0.7),
+        Vector3.new(0.7, 0, -0.7), Vector3.new(-0.7, 0, -0.7),
+    }
+    local rings = { 0, radius * 0.05, radius * 0.1, radius * 0.18, radius * 0.28 }
+
+    for _, ring in ipairs(rings) do
+        for _, dir in ipairs(samples) do
+            local ox = cx + dir.X * ring
+            local oz = cz + dir.Z * ring
+            local origin = Vector3.new(ox, peakY + 250, oz)
+            local hit = Workspace:Raycast(origin, Vector3.new(0, -(peakY - baseY + 400), 0), rayParams)
+            if hit and hit.Position.Y > bestY then
+                bestY = hit.Position.Y
+                bestPos = hit.Position
+            end
+        end
+    end
+
+    if bestY < -1e8 then
+        bestPos = Vector3.new(cx, peakY, cz)
+    end
+
+    return bestPos + Vector3.new(0, 6, 0)
+end
+
+local function teleportToMountainPeak()
+    local peak = mountainPeakPosition()
+    if not peak then
+        WindUI:Notify({
+            Title = "FayyMeng",
+            Content = "Mountain peak not found",
+            Duration = 3,
+            Icon = "alert-circle",
+        })
+        return false
+    end
+
+    requestStream(peak)
+    pcall(function()
+        LocalPlayer:RequestStreamAroundAsync(peak, 5)
+    end)
+
+    local root = getRoot()
+    if not root then
+        return false
+    end
+
+    -- Hard teleport (reliable)
+    pcall(function()
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CFrame = CFrame.new(peak)
+    end)
+
+    -- Optional follow-up glide hold if available
+    if Move and Move.setNoclip then
+        pcall(Move.setNoclip, true)
+    end
+    if Move and Move.glide then
+        pcall(Move.glide, CFrame.new(peak), peak)
+        task.delay(2, function()
+            if Move and Move.glideStop then
+                pcall(Move.glideStop)
+            end
+            if Move and Move.setNoclip then
+                pcall(Move.setNoclip, false)
+            end
+        end)
+    end
+
+    WindUI:Notify({
+        Title = "FayyMeng",
+        Content = string.format("Peak Y=%.0f", peak.Y),
+        Duration = 2,
+        Icon = "check",
+    })
+    return true
+end
+
+
 local sellClock = 0
 
 local function doSell()
@@ -4384,87 +4503,111 @@ end
 
 
 
-local function mountainPeakPosition()
-    local cx = Workspace:GetAttribute("MountainCenterX")
-    local cz = Workspace:GetAttribute("MountainCenterZ")
-    local peakY = Workspace:GetAttribute("MountainPeakY")
-    local baseY = Workspace:GetAttribute("MountainBaseY")
-    local radius = Workspace:GetAttribute("MountainRadius")
 
-    if typeof(cx) ~= "number" or typeof(cz) ~= "number" then
-        local spot = mountainSpot()
-        if not spot then
-            return nil
-        end
-        cx, cz = spot.X, spot.Z
+local function resolveUserId(input)
+    if input == nil then
+        return nil
     end
-    if typeof(radius) ~= "number" or radius < 20 then
-        radius = 150
+    input = tostring(input):gsub("%s+", "")
+    if input == "" then
+        return nil
     end
-    if typeof(peakY) ~= "number" then
-        peakY = (typeof(baseY) == "number" and baseY or 0) + 900
+    local asNum = tonumber(input)
+    if asNum and asNum > 0 then
+        return math.floor(asNum)
     end
-    if typeof(baseY) ~= "number" then
-        baseY = 0
+    local ok, userId = pcall(function()
+        return Players:GetUserIdFromNameAsync(input)
+    end)
+    if ok and type(userId) == "number" and userId > 0 then
+        return userId
     end
-
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    local char = LocalPlayer.Character
-    if char then
-        rayParams.FilterDescendantsInstances = { char }
-    end
-    rayParams.IgnoreWater = true
-
-    local bestPos = Vector3.new(cx, peakY, cz)
-    local bestY = -math.huge
-    local samples = {
-        Vector3.new(0, 0, 0),
-        Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
-        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1),
-        Vector3.new(0.7, 0, 0.7), Vector3.new(-0.7, 0, 0.7),
-        Vector3.new(0.7, 0, -0.7), Vector3.new(-0.7, 0, -0.7),
-    }
-    local rings = { 0, radius * 0.05, radius * 0.1, radius * 0.18, radius * 0.28 }
-
-    for _, ring in ipairs(rings) do
-        for _, dir in ipairs(samples) do
-            local ox = cx + dir.X * ring
-            local oz = cz + dir.Z * ring
-            local origin = Vector3.new(ox, peakY + 250, oz)
-            local hit = Workspace:Raycast(origin, Vector3.new(0, -(peakY - baseY + 400), 0), rayParams)
-            if hit and hit.Position.Y > bestY then
-                bestY = hit.Position.Y
-                bestPos = hit.Position
-            end
-        end
-    end
-
-    if bestY < -1e8 then
-        bestPos = Vector3.new(cx, peakY, cz)
-    end
-
-    return bestPos + Vector3.new(0, 6, 0)
+    return nil
 end
 
-local function teleportToMountainPeak()
-    local peak = mountainPeakPosition()
-    if not peak then
-        return false
+local function joinServerByUser(input)
+    local userId = resolveUserId(input)
+    if not userId then
+        WindUI:Notify({
+            Title = "Join Server",
+            Content = "Invalid username / userId",
+            Duration = 3,
+            Icon = "alert-circle",
+        })
+        return
     end
-    requestStream(peak)
-    if Move and Move.glide then
-        pcall(Move.setNoclip, true)
-        pcall(Move.glide, CFrame.new(peak), peak)
-        task.delay(3, function()
-            if Move and Move.glideStop then
-                pcall(Move.glideStop)
-            end
+
+    task.spawn(function()
+        local ok, currentPlaceId, jobId = pcall(function()
+            return game:GetService("TeleportService"):GetPlayerPlaceInstanceAsync(userId)
         end)
-    else
-        pcall(teleportTo, peak)
-    end
-    return true
+
+        -- Some executors return differently
+        if not ok then
+            -- fallback: Try API style (placeId, jobId)
+            ok, currentPlaceId, jobId = pcall(function()
+                local a, b = game:GetService("TeleportService"):GetPlayerPlaceInstanceAsync(userId)
+                return a, b
+            end)
+        end
+
+        if not ok then
+            WindUI:Notify({
+                Title = "Join Server",
+                Content = "Player offline or privacy blocked",
+                Duration = 3,
+                Icon = "alert-circle",
+            })
+            return
+        end
+
+        -- Unpack if table
+        if type(currentPlaceId) == "table" then
+            jobId = currentPlaceId.JobId or currentPlaceId.jobId or currentPlaceId[2]
+            currentPlaceId = currentPlaceId.PlaceId or currentPlaceId.placeId or currentPlaceId[1]
+        end
+
+        if type(currentPlaceId) ~= "number" or type(jobId) ~= "string" or jobId == "" then
+            WindUI:Notify({
+                Title = "Join Server",
+                Content = "Could not read their server",
+                Duration = 3,
+                Icon = "alert-circle",
+            })
+            return
+        end
+
+        if currentPlaceId ~= game.PlaceId then
+            WindUI:Notify({
+                Title = "Join Server",
+                Content = "They are in a different place/game",
+                Duration = 3,
+                Icon = "alert-circle",
+            })
+            return
+        end
+
+        if jobId == game.JobId then
+            WindUI:Notify({
+                Title = "Join Server",
+                Content = "Already in the same server",
+                Duration = 2,
+                Icon = "check",
+            })
+            return
+        end
+
+        WindUI:Notify({
+            Title = "Join Server",
+            Content = "Teleporting to their server...",
+            Duration = 3,
+            Icon = "globe",
+        })
+
+        pcall(function()
+            game:GetService("TeleportService"):TeleportToPlaceInstance(currentPlaceId, jobId, LocalPlayer)
+        end)
+    end)
 end
 
 local function nearestOtherPlayer(origin)
@@ -7327,6 +7470,22 @@ do
         })
 
                 local SettingsBox = Tabs.settings
+
+        SettingsBox:Input({
+            Title = "Join by Username / UserId",
+            Value = "",
+            Placeholder = "Username or UserId",
+            Callback = function(value)
+                S._joinTarget = tostring(value or "")
+            end
+        })
+
+        SettingsBox:Button({
+            Title = "Join Their Server",
+            Callback = function()
+                joinServerByUser(S._joinTarget)
+            end
+        })
 
         SettingsBox:Dropdown({
             Title = "Farm Movement",
