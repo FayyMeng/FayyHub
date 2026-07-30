@@ -1975,6 +1975,22 @@ local function nearbyCrystalParts(origin, radius)
     return nil
 end
 
+local function isRuneLike(inst)
+    if not inst then
+        return false
+    end
+    if getAttr(inst, "IsRune") == true then
+        return true
+    end
+    if getAttr(inst, "RuneId") ~= nil or getAttr(inst, "RuneName") ~= nil then
+        return true
+    end
+    if type(inst.Name) == "string" and inst.Name:find("Rune", 1, true) then
+        return true
+    end
+    return false
+end
+
 local function refreshInstantPrompts()
     local root = getRoot()
     if not root then
@@ -1987,16 +2003,43 @@ local function refreshInstantPrompts()
         end
     end
 
+    -- Crystals
     local hits = nearbyCrystalParts(root.Position, PICK.instantRadius)
-    if not hits then
-        return
+    if hits then
+        for _, part in ipairs(hits) do
+            if isCrystal(part) and getAttr(part, "Collected") ~= true then
+                local prompt = crystalPrompt(part)
+                if prompt then
+                    instantPromptPatch(prompt)
+                end
+            end
+        end
     end
 
-    for _, part in ipairs(hits) do
-        if isCrystal(part) and getAttr(part, "Collected") ~= true then
-            local prompt = crystalPrompt(part)
-            if prompt then
-                instantPromptPatch(prompt)
+    -- Runes (works even if Auto Rune Pickup is off)
+    local radius = (PICK.instantRadius or 25) + 10
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
+    pcall(function()
+        params.MaxParts = 80
+    end)
+
+    local ok, parts = pcall(function()
+        return Workspace:GetPartBoundsInRadius(root.Position, radius, params)
+    end)
+    if ok and parts then
+        for _, part in ipairs(parts) do
+            local owner = part
+            if part:IsA("BasePart") and part.Parent and (part.Parent:IsA("Model") or isRuneLike(part.Parent)) then
+                owner = part.Parent
+            end
+            if isRuneLike(owner) or isRuneLike(part) then
+                local prompt = part:FindFirstChildWhichIsA("ProximityPrompt")
+                    or (owner and owner:FindFirstChildWhichIsA("ProximityPrompt", true))
+                if prompt then
+                    instantPromptPatch(prompt)
+                end
             end
         end
     end
@@ -2772,37 +2815,32 @@ local function teleportToMountainPeak()
         LocalPlayer:RequestStreamAroundAsync(peak, 5)
     end)
 
-    local root = getRoot()
-    if not root then
+    if not (Move and Move.glide) then
+        WindUI:Notify({
+            Title = "FayyMeng",
+            Content = "Tween system unavailable",
+            Duration = 3,
+            Icon = "alert-circle",
+        })
         return false
     end
 
-    -- Hard teleport (reliable)
-    pcall(function()
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        root.CFrame = CFrame.new(peak)
-    end)
-
-    -- Optional follow-up glide hold if available
-    if Move and Move.setNoclip then
-        pcall(Move.setNoclip, true)
-    end
-    if Move and Move.glide then
-        pcall(Move.glide, CFrame.new(peak), peak)
-        task.delay(2, function()
-            if Move and Move.glideStop then
-                pcall(Move.glideStop)
-            end
-            if Move and Move.setNoclip then
-                pcall(Move.setNoclip, false)
-            end
-        end)
+    pcall(Move.setNoclip, true)
+    pcall(Move.glideStop)
+    local ok = Move.glide(CFrame.new(peak), peak)
+    if not ok then
+        WindUI:Notify({
+            Title = "FayyMeng",
+            Content = "Failed to start tween",
+            Duration = 3,
+            Icon = "alert-circle",
+        })
+        return false
     end
 
     WindUI:Notify({
         Title = "FayyMeng",
-        Content = string.format("Peak Y=%.0f", peak.Y),
+        Content = string.format("Tween to peak Y=%.0f", peak.Y),
         Duration = 2,
         Icon = "check",
     })
@@ -4538,49 +4576,81 @@ local function joinServerByUser(input)
     end
 
     task.spawn(function()
-        local ok, currentPlaceId, jobId = pcall(function()
-            return game:GetService("TeleportService"):GetPlayerPlaceInstanceAsync(userId)
+        local ts = game:GetService("TeleportService")
+        local placeId, jobId
+        local errMsg
+
+        -- IMPORTANT: capture multi-return inside pcall (pcall only keeps 1st return)
+        local ok = pcall(function()
+            local a, b, c = ts:GetPlayerPlaceInstanceAsync(userId)
+            -- API variants across Roblox versions / executors:
+            -- (placeId, jobId)
+            -- (success, placeId, jobId)
+            -- (jobId) only
+            if type(a) == "boolean" then
+                if not a then
+                    errMsg = tostring(b)
+                    error(errMsg or "not in game")
+                end
+                placeId, jobId = b, c
+            elseif type(a) == "number" or (type(a) == "string" and tonumber(a)) then
+                placeId, jobId = tonumber(a) or a, b
+            elseif type(a) == "string" and type(b) == "string" then
+                -- some return jobId first
+                if #a > 10 and not tonumber(a) then
+                    jobId, placeId = a, tonumber(b) or game.PlaceId
+                else
+                    placeId, jobId = tonumber(a) or a, b
+                end
+            else
+                placeId, jobId = a, b
+            end
         end)
 
-        -- Some executors return differently
-        if not ok then
-            -- fallback: Try API style (placeId, jobId)
-            ok, currentPlaceId, jobId = pcall(function()
-                local a, b = game:GetService("TeleportService"):GetPlayerPlaceInstanceAsync(userId)
-                return a, b
+        if not ok or not jobId then
+            -- HTTP fallback via presence (same game only)
+            local httpOk, data = pcall(function()
+                local req = (syn and syn.request) or (http and http.request) or request or http_request
+                if not req then
+                    error("no request")
+                end
+                local res = req({
+                    Url = "https://apis.roblox.com/presence-api/v1/presence/users",
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = game:GetService("HttpService"):JSONEncode({ userIds = { userId } }),
+                })
+                return game:GetService("HttpService"):JSONDecode(res.Body)
             end)
+
+            if httpOk and data and data.userPresences then
+                for _, presence in ipairs(data.userPresences) do
+                    if presence.userPresenceType == 2 and presence.placeId and presence.gameId then
+                        placeId = presence.placeId
+                        jobId = presence.gameId
+                        break
+                    end
+                end
+            end
         end
 
-        if not ok then
+        placeId = tonumber(placeId) or placeId
+        jobId = jobId and tostring(jobId) or nil
+
+        if not jobId or jobId == "" then
             WindUI:Notify({
                 Title = "Join Server",
-                Content = "Player offline or privacy blocked",
+                Content = errMsg or "Player offline / privacy blocked",
                 Duration = 3,
                 Icon = "alert-circle",
             })
             return
         end
 
-        -- Unpack if table
-        if type(currentPlaceId) == "table" then
-            jobId = currentPlaceId.JobId or currentPlaceId.jobId or currentPlaceId[2]
-            currentPlaceId = currentPlaceId.PlaceId or currentPlaceId.placeId or currentPlaceId[1]
-        end
-
-        if type(currentPlaceId) ~= "number" or type(jobId) ~= "string" or jobId == "" then
+        if placeId and tonumber(placeId) and tonumber(placeId) ~= game.PlaceId then
             WindUI:Notify({
                 Title = "Join Server",
-                Content = "Could not read their server",
-                Duration = 3,
-                Icon = "alert-circle",
-            })
-            return
-        end
-
-        if currentPlaceId ~= game.PlaceId then
-            WindUI:Notify({
-                Title = "Join Server",
-                Content = "They are in a different place/game",
+                Content = "They are in a different place (" .. tostring(placeId) .. ")",
                 Duration = 3,
                 Icon = "alert-circle",
             })
@@ -4599,14 +4669,19 @@ local function joinServerByUser(input)
 
         WindUI:Notify({
             Title = "Join Server",
-            Content = "Teleporting to their server...",
+            Content = "Joining server...",
             Duration = 3,
             Icon = "globe",
         })
 
-        pcall(function()
-            game:GetService("TeleportService"):TeleportToPlaceInstance(currentPlaceId, jobId, LocalPlayer)
+        local tpOk, tpErr = pcall(function()
+            ts:TeleportToPlaceInstance(game.PlaceId, jobId, LocalPlayer)
         end)
+        if not tpOk then
+            pcall(function()
+                ts:TeleportToPlaceInstance(tonumber(placeId) or game.PlaceId, jobId, LocalPlayer)
+            end)
+        end
     end)
 end
 
