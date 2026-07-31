@@ -294,6 +294,7 @@ local S = {
     safeReturnPos       = nil,
     safeFleeing         = false,
     farmActive          = false,
+    antiRagdoll         = false,
     _joinTarget         = "",
     wasAtBase           = false,
     miningBoulder       = nil,
@@ -7776,6 +7777,153 @@ do
             end
         })
 
+
+local function setAntiRagdoll(value)
+    S.antiRagdoll = value == true
+
+    if S._antiRagdollConn then
+        S._antiRagdollConn:Disconnect()
+        S._antiRagdollConn = nil
+    end
+    if S._antiRagdollAttrConn then
+        S._antiRagdollAttrConn:Disconnect()
+        S._antiRagdollAttrConn = nil
+    end
+    if S._antiRagdollCharConn then
+        S._antiRagdollCharConn:Disconnect()
+        S._antiRagdollCharConn = nil
+    end
+
+    if not S.antiRagdoll then
+        return
+    end
+
+    local function getDeactivateRemote()
+        local pkg = ReplicatedStorage:FindFirstChild("RagdollSystemPackage")
+        local sys = pkg and pkg:FindFirstChild("RagdollSystem")
+        local remotes = sys and sys:FindFirstChild("Remotes")
+        return remotes and remotes:FindFirstChild("DeactivateRagdollRemote")
+    end
+
+    local function forceUnragdoll()
+        local character = LocalPlayer.Character
+        if not character then
+            return
+        end
+
+        local remote = getDeactivateRemote()
+        if remote then
+            pcall(function()
+                remote:FireServer()
+            end)
+        end
+
+        -- also try main remotes folder variant
+        local alt = findRemote and findRemote("RagdollRequest")
+        if alt then
+            pcall(function()
+                alt:FireServer("disable")
+            end)
+            pcall(function()
+                alt:FireServer("deactivate")
+            end)
+        end
+
+        pcall(function()
+            character:SetAttribute("Ragdolled", false)
+        end)
+
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if humanoid then
+            pcall(function()
+                humanoid.PlatformStand = false
+                if humanoid.WalkSpeed <= 0 then
+                    humanoid.WalkSpeed = 16
+                end
+                if humanoid.JumpPower <= 0 and humanoid.JumpHeight ~= nil then
+                    -- leave jump as-is if game uses JumpHeight
+                end
+                local state = humanoid:GetState()
+                if state == Enum.HumanoidStateType.Physics
+                    or state == Enum.HumanoidStateType.FallingDown
+                    or state == Enum.HumanoidStateType.Ragdoll then
+                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end)
+        end
+
+        if root then
+            pcall(function()
+                root.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+
+        -- re-enable animation constraints if movement ragdoll disabled them
+        for _, inst in ipairs(character:GetDescendants()) do
+            if inst:IsA("AnimationConstraint") then
+                pcall(function()
+                    inst.Enabled = true
+                    inst.IsKinematic = true
+                end)
+            end
+        end
+    end
+
+    local function hookCharacter(character)
+        if S._antiRagdollAttrConn then
+            S._antiRagdollAttrConn:Disconnect()
+            S._antiRagdollAttrConn = nil
+        end
+        if not character then
+            return
+        end
+
+        S._antiRagdollAttrConn = character:GetAttributeChangedSignal("Ragdolled"):Connect(function()
+            if S.antiRagdoll and character:GetAttribute("Ragdolled") then
+                forceUnragdoll()
+            end
+        end)
+
+        if character:GetAttribute("Ragdolled") then
+            forceUnragdoll()
+        end
+    end
+
+    hookCharacter(LocalPlayer.Character)
+    S._antiRagdollCharConn = LocalPlayer.CharacterAdded:Connect(hookCharacter)
+
+    local clock = 0
+    S._antiRagdollConn = RunService.Heartbeat:Connect(function(dt)
+        if not S.antiRagdoll then
+            return
+        end
+        clock += dt
+        if clock < 0.15 then
+            return
+        end
+        clock = 0
+
+        local character = LocalPlayer.Character
+        if not character then
+            return
+        end
+
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local ragdolled = character:GetAttribute("Ragdolled") == true
+        local physics = humanoid and (
+            humanoid:GetState() == Enum.HumanoidStateType.Physics
+            or humanoid:GetState() == Enum.HumanoidStateType.Ragdoll
+            or humanoid.PlatformStand == true
+        )
+
+        if ragdolled or physics then
+            forceUnragdoll()
+        end
+    end)
+end
+
+
                 local SettingsBox = Tabs.settings
 
         SettingsBox:Input({
@@ -7822,6 +7970,12 @@ do
                     S.safeReturnPos = nil
                 end
             end
+        })
+
+        SettingsBox:Toggle({
+            Title = "Anti Ragdoll",
+            Value = false,
+            Callback = setAntiRagdoll,
         })
 
         SettingsBox:Button({
