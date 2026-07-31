@@ -247,7 +247,7 @@ local Tabs = {
     movement = Window:Tab({ Title = "Movement", Icon = "person-standing" }),
     teleports = Window:Tab({ Title = "Teleports", Icon = "map-pin" }),
     settings = Window:Tab({ Title = "Settings", Icon = "sliders-horizontal" }),
-
+}
 
 local EspHolder = Instance.new("Folder")
 EspHolder.Name = "FayyMengCrystalEsp"
@@ -8788,3 +8788,4 @@ do
         end
     end)
 end
+
