@@ -101,6 +101,10 @@ local SellRequest = findRemote("SellRequest")
 local GoHome = findRemote("GoHome")
 local HoldComplete = findRemote("CrystalHoldComplete")
 local ToggleFavorite = findRemote("ToggleFavorite")
+local BombShopQuery = findRemote("BombShopQuery")
+local BombBuyRequest = findRemote("BombBuyRequest")
+local BombShopRestocked = findRemote("BombShopRestocked")
+local PlotPlaceRequest = findRemote("PlotPlaceRequest")
 
 local ESP = {
     font = Enum.Font.GothamBold,
@@ -302,6 +306,10 @@ local S = {
     pickupLuckActive    = false,
     pickupMinValue      = 1000000000,
     pickupMinLuck       = 0,
+    autoBuyBombs        = false,
+    focusLuck           = false,
+    minLuckPoints       = 10,
+    autoPlantLuck       = false,
     StatsLabel          = nil,
     BackpackLabel       = nil,
 }
@@ -6383,6 +6391,10 @@ do
 
         local active = false
         local autoSell = false
+        local focusLuck = false
+        local minLuckPoints = 10
+        local autoPlantLuck = false
+        local plantClock = 0
         local heldPick
         local loot
         local lootClock = 0
@@ -6555,8 +6567,8 @@ do
             return backpackWeight() / capacity
         end
 
-        local function findLoot(free, origin)
-            local best, bestValue, bestDistance
+        local function findLoot(free, origin, luckFilterFn)
+            local best, bestValue, bestDistance, bestLuck
             local blocked = false
             local seen = {}
 
@@ -6575,6 +6587,10 @@ do
                     return
                 end
 
+                if luckFilterFn and not luckFilterFn(inst) then
+                    return
+                end
+
                 local distance = (inst.Position - origin).Magnitude
                 if distance > COLLECT_RANGE then
                     return
@@ -6585,16 +6601,22 @@ do
                     return
                 end
 
-                local better = not best or value > bestValue
-
-                if not better and value == bestValue and distance < bestDistance then
-                    better = true
+                local luckPts = math.floor((crystalLuck(inst) or 0) * 100 + 0.5)
+                local better = false
+                if focusLuck then
+                    better = not best or luckPts > (bestLuck or 0) or (luckPts == (bestLuck or 0) and value > (bestValue or 0))
+                else
+                    better = not best or value > bestValue
+                    if not better and value == bestValue and distance < bestDistance then
+                        better = true
+                    end
                 end
 
                 if better then
                     best = inst
                     bestValue = value
                     bestDistance = distance
+                    bestLuck = luckPts
                 end
             end
 
@@ -6665,7 +6687,67 @@ do
                 end
                 loaded = true
                 peakClock = 0
-                statusText = "Terrain loaded"
+                statusText = "Terrain loaded (no character scan)"
+            end
+
+            -- Long-range Auto Plant Luck (no teleport)
+            if autoPlantLuck and now - plantClock >= 3.5 then
+                plantClock = now
+                local tools = {}
+                local function scanTools(container)
+                    if not container then return end
+                    for _, child in ipairs(container:GetChildren()) do
+                        if child:IsA("Tool") and getAttr(child, "Tier") ~= nil then
+                            local luck = crystalLuck(child) or 0
+                            if luck * 100 >= 5 then
+                                tools[#tools + 1] = child
+                            end
+                        end
+                    end
+                end
+                scanTools(LocalPlayer:FindFirstChildOfClass("Backpack"))
+                scanTools(LocalPlayer.Character)
+                if #tools >= 3 and PlotPlaceRequest then
+                    local plot = nil
+                    local things = Workspace:FindFirstChild("Things")
+                    local plots = things and things:FindFirstChild("Plots")
+                    local slots = plots and plots:FindFirstChild("Slots")
+                    if slots then
+                        plot = slots:FindFirstChild(LocalPlayer.Name)
+                        if not plot then
+                            for _, slot in ipairs(slots:GetChildren()) do
+                                local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
+                                if owner == LocalPlayer.Name or owner == LocalPlayer.UserId then
+                                    plot = slot
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if plot then
+                        local region = plot:FindFirstChild("Region")
+                        local basePos = nil
+                        if region and region:IsA("BasePart") then
+                            basePos = region.Position
+                        else
+                            local ok, pivot = pcall(function() return plot:GetPivot().Position end)
+                            if ok and pivot then basePos = pivot end
+                        end
+                        if basePos then
+                            for i, tool in ipairs(tools) do
+                                if i > 12 then break end
+                                local col = (i - 1) % 6
+                                local row = math.floor((i - 1) / 6)
+                                local plantSpot = basePos + Vector3.new(col * 4 - 10, 0, row * 4 - 10)
+                                pcall(function()
+                                    PlotPlaceRequest:FireServer(tool.Name, plantSpot, 0, tool)
+                                end)
+                                task.wait(0.07)
+                            end
+                            statusText = "Planted luck (long range)"
+                        end
+                    end
+                end
             end
 
             if sellUntil > 0 then
@@ -6739,7 +6821,14 @@ do
 
             if not loot and now - lootClock >= COLLECT_GAP then
                 lootClock = now
-                loot, lootBlocked = findLoot(free, root.Position)
+                local luckFn = nil
+                if focusLuck then
+                    luckFn = function(inst)
+                        local luckPts = math.floor((crystalLuck(inst) or 0) * 100 + 0.5)
+                        return luckPts >= minLuckPoints
+                    end
+                end
+                loot, lootBlocked = findLoot(free, root.Position, luckFn)
 
                 if loot then
                     lootHp = tonumber(getAttr(loot, "MinedHP"))
@@ -6904,6 +6993,41 @@ do
             Value = false,
             Callback = function(value)
                 autoSell = value
+            end
+        })
+
+        MoneyBox:Toggle({
+            Title = "Focus Luck Crystals",
+            Value = false,
+            Callback = function(value)
+                focusLuck = value
+                S.focusLuck = value
+                loot = nil
+            end
+        })
+
+        MoneyBox:Input({
+            Title = "Min Luck Points",
+            Value = "10",
+            Placeholder = "10",
+            Callback = function(value)
+                if type(value) == "table" then
+                    value = value.Text or value.Value or value[1] or "10"
+                end
+                local n = tonumber(tostring(value):match("[%d%.]+"))
+                if n and n > 0 then
+                    minLuckPoints = math.floor(n)
+                    S.minLuckPoints = minLuckPoints
+                end
+            end
+        })
+
+        MoneyBox:Toggle({
+            Title = "Auto Plant Luck (Long Range)",
+            Value = false,
+            Callback = function(value)
+                autoPlantLuck = value
+                S.autoPlantLuck = value
             end
         })
 
@@ -7881,6 +8005,82 @@ do
                 prompt:InputHoldEnd()
             end)
         end
+
+        local function buyAllAvailableBombs()
+            local query = BombShopQuery
+            local buyReq = BombBuyRequest
+            if not query or not buyReq then
+                return 0
+            end
+            local ok, data = pcall(function()
+                return query:InvokeServer()
+            end)
+            if not ok or not data or not data.stock then
+                return 0
+            end
+            local boughtTotal = 0
+            for bombId, amount in pairs(data.stock) do
+                local count = tonumber(amount) or 0
+                if count > 0 then
+                    for _ = 1, count do
+                        local success, res = pcall(function()
+                            return buyReq:InvokeServer(bombId)
+                        end)
+                        if success and res and res.ok then
+                            boughtTotal += 1
+                        else
+                            break
+                        end
+                    end
+                end
+            end
+            return boughtTotal
+        end
+
+        if BombShopRestocked then
+            pcall(function()
+                BombShopRestocked.OnClientEvent:Connect(function()
+                    if S.autoBuyBombs then
+                        task.spawn(buyAllAvailableBombs)
+                    end
+                end)
+            end)
+        end
+
+        task.spawn(function()
+            while true do
+                task.wait(12)
+                if S.autoBuyBombs then
+                    pcall(buyAllAvailableBombs)
+                end
+            end
+        end)
+
+        ShopBox:Toggle({
+            Title = "Auto Buy Bombs On Restock",
+            Value = false,
+            Callback = function(value)
+                S.autoBuyBombs = value
+                if value then
+                    task.spawn(buyAllAvailableBombs)
+                end
+            end
+        })
+
+        ShopBox:Button({
+            Title = "Buy All Bomb Stock Now",
+            Callback = function()
+                task.spawn(function()
+                    local count = buyAllAvailableBombs()
+                    WindUI:Notify({
+                        Title = "Bomb Shop",
+                        Content = "Purchased " .. tostring(count) .. " bombs",
+                        Duration = 3,
+                        Icon = count > 0 and "check" or "alert-circle",
+                    })
+                end)
+            end
+        })
 
         ShopBox:Button({
             Title = "Open Bomb Shop",
