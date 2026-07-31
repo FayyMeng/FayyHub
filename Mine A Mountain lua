@@ -657,17 +657,58 @@ function FM.travelTo(dest, lookAt)
 end
 
 function FM.goPlotUnderground(region)
-    if not region then
+    -- Changed: teleport to Sign (same as "TP To Own Plot") instead of underground
+    -- so placement happens from the sign position
+    local plot = nil
+    if region and region.Parent then
+        plot = region.Parent
+    end
+    if not plot then
+        local p, r = FM.getOwnedPlotRegion()
+        plot = p
+        region = r or region
+    end
+    if not plot then
         return false
     end
-    -- sit under plot so less visible, still near for place range
-    local dest = region.Position + Vector3.new(0, -12, 0)
+
+    local dest = nil
+    local sign = plot:FindFirstChild("Sign", true)
+    if sign then
+        if sign:IsA("BasePart") then
+            dest = sign.Position
+        elseif sign:IsA("Model") then
+            local ok, pivot = pcall(function()
+                return sign:GetPivot().Position
+            end)
+            if ok and pivot then
+                dest = pivot
+            else
+                local part = sign.PrimaryPart or sign:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    dest = part.Position
+                end
+            end
+        end
+    end
+
+    if not dest and region and region:IsA("BasePart") then
+        dest = region.Position
+    end
+
+    if not dest then
+        return false
+    end
+
+    -- small offset so we stand near the sign, not inside geometry
+    dest = dest + Vector3.new(0, 3, 0)
+
     pcall(function()
         if Move and Move.setNoclip then
             Move.setNoclip(true)
         end
     end)
-    FM.travelTo(dest, region.Position)
+    FM.travelTo(dest, dest)
     task.wait(0.35)
     local root = FM.getRoot and FM.getRoot() or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
     if root then
@@ -736,11 +777,26 @@ function FM.placeAllBackpackCrystals()
         local placed = 0
         for _, tool in ipairs(tools) do
             if tool and tool.Parent then
-                -- stay under plot between places
+                -- stay near Sign / place position between places
                 local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if root and region then
-                    local under = region.Position + Vector3.new(0, -12, 0)
-                    if (root.Position - under).Magnitude > 25 then
+                    -- re-use the same destination logic (Sign preferred)
+                    local plot = region.Parent
+                    local targetPos = region.Position + Vector3.new(0, 3, 0)
+                    if plot then
+                        local sign = plot:FindFirstChild("Sign", true)
+                        if sign then
+                            if sign:IsA("BasePart") then
+                                targetPos = sign.Position + Vector3.new(0, 3, 0)
+                            elseif sign:IsA("Model") then
+                                local ok, pivot = pcall(function() return sign:GetPivot().Position end)
+                                if ok and pivot then
+                                    targetPos = pivot + Vector3.new(0, 3, 0)
+                                end
+                            end
+                        end
+                    end
+                    if (root.Position - targetPos).Magnitude > 25 then
                         FM.goPlotUnderground(region)
                     end
                 end
@@ -8327,10 +8383,16 @@ function FM.setAntiRagdoll(value)
         S._antiRagdollStateConn:Disconnect()
         S._antiRagdollStateConn = nil
     end
+    if S._antiRagdollHealthConn then
+        S._antiRagdollHealthConn:Disconnect()
+        S._antiRagdollHealthConn = nil
+    end
 
     if not S.antiRagdoll then
         return
     end
+
+    S._lastSafeHealth = nil
 
     local function getDeactivateRemote()
         local pkg = ReplicatedStorage:FindFirstChild("RagdollSystemPackage")
@@ -8339,10 +8401,27 @@ function FM.setAntiRagdoll(value)
         return remotes and remotes:FindFirstChild("DeactivateRagdollRemote")
     end
 
-    local function forceUnragdoll()
+    local function zeroDamageAndUnragdoll()
         local character = LocalPlayer.Character
         if not character then
             return
+        end
+
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        -- Immediately nullify any damage that arrived with the ragdoll
+        if humanoid then
+            local safe = S._lastSafeHealth or humanoid.MaxHealth
+            if humanoid.Health < safe then
+                pcall(function()
+                    humanoid.Health = safe
+                end)
+            end
+            -- also clamp to max just in case
+            if humanoid.Health > humanoid.MaxHealth then
+                pcall(function()
+                    humanoid.Health = humanoid.MaxHealth
+                end)
+            end
         end
 
         local remote = getDeactivateRemote()
@@ -8353,7 +8432,7 @@ function FM.setAntiRagdoll(value)
         end
 
         -- also try main remotes folder variant
-        local alt = findRemote and FM.findRemote("RagdollRequest")
+        local alt = FM.findRemote and FM.findRemote("RagdollRequest")
         if alt then
             pcall(function()
                 alt:FireServer("disable")
@@ -8367,16 +8446,12 @@ function FM.setAntiRagdoll(value)
             character:SetAttribute("Ragdolled", false)
         end)
 
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
         local root = character:FindFirstChild("HumanoidRootPart")
         if humanoid then
             pcall(function()
                 humanoid.PlatformStand = false
                 if humanoid.WalkSpeed <= 0 then
                     humanoid.WalkSpeed = 16
-                end
-                if humanoid.JumpPower <= 0 and humanoid.JumpHeight ~= nil then
-                    -- leave jump as-is if game uses JumpHeight
                 end
                 local state = humanoid:GetState()
                 if state == Enum.HumanoidStateType.Physics
@@ -8409,17 +8484,48 @@ function FM.setAntiRagdoll(value)
             S._antiRagdollAttrConn:Disconnect()
             S._antiRagdollAttrConn = nil
         end
+        if S._antiRagdollHealthConn then
+            S._antiRagdollHealthConn:Disconnect()
+            S._antiRagdollHealthConn = nil
+        end
         if not character then
             return
         end
 
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            S._lastSafeHealth = humanoid.Health
+            -- Track safe health continuously when not ragdolled
+            S._antiRagdollHealthConn = humanoid.HealthChanged:Connect(function(newHealth)
+                if not S.antiRagdoll then return end
+                local isRag = character:GetAttribute("Ragdolled") == true
+                    or humanoid:GetState() == Enum.HumanoidStateType.Physics
+                    or humanoid:GetState() == Enum.HumanoidStateType.Ragdoll
+                    or humanoid.PlatformStand
+                if isRag then
+                    -- damage came with ragdoll → force back to last safe value (dmg = 0)
+                    local safe = S._lastSafeHealth or humanoid.MaxHealth
+                    if newHealth < safe then
+                        pcall(function()
+                            humanoid.Health = safe
+                        end)
+                    end
+                    zeroDamageAndUnragdoll()
+                else
+                    -- update safe baseline only when healthy / not ragdolled
+                    if newHealth > 0 then
+                        S._lastSafeHealth = newHealth
+                    end
+                end
+            end)
+        end
+
         S._antiRagdollAttrConn = character:GetAttributeChangedSignal("Ragdolled"):Connect(function()
             if S.antiRagdoll and character:GetAttribute("Ragdolled") then
-                forceUnragdoll()
+                zeroDamageAndUnragdoll()
             end
         end)
 
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             if S._antiRagdollStateConn then
                 S._antiRagdollStateConn:Disconnect()
@@ -8431,13 +8537,13 @@ function FM.setAntiRagdoll(value)
                 if newState == Enum.HumanoidStateType.Physics
                     or newState == Enum.HumanoidStateType.Ragdoll
                     or newState == Enum.HumanoidStateType.FallingDown then
-                    forceUnragdoll()
+                    zeroDamageAndUnragdoll()
                 end
             end)
         end
 
         if character:GetAttribute("Ragdolled") then
-            forceUnragdoll()
+            zeroDamageAndUnragdoll()
         end
     end
 
@@ -8469,7 +8575,10 @@ function FM.setAntiRagdoll(value)
         )
 
         if ragdolled or physics then
-            forceUnragdoll()
+            zeroDamageAndUnragdoll()
+        elseif humanoid and humanoid.Health > 0 then
+            -- keep safe health baseline fresh
+            S._lastSafeHealth = humanoid.Health
         end
     end)
 end
