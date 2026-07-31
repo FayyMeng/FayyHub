@@ -172,11 +172,12 @@ local PICK = {
     pad = 4,
     instantRadius = 90,
     instantTick = 0.6,
-    -- modes for value/luck pickup
-    legitCooldown = 0.28,
+    -- Legit = original slow one-by-one (before burst was added)
+    legitCooldown = 0.12,
     legitBurst = 1,
-    burstCooldown = 0.06,
-    burstBurst = 5,
+    -- Burst = Universe-style fast multi-grab
+    burstCooldown = 0.04,
+    burstBurst = 8,
 }
 
 function FM.getPickupTiming()
@@ -184,6 +185,27 @@ function FM.getPickupTiming()
         return PICK.burstCooldown, PICK.burstBurst
     end
     return PICK.legitCooldown, PICK.legitBurst
+end
+
+-- Shared filter for value / luck toggles (used by both Legit & Burst)
+function FM.valueLuckFilter(inst)
+    if not inst then
+        return false
+    end
+    if S.pickupValueActive then
+        local value = FM.crystalValue(inst)
+        if value < (S.pickupMinValue or 0) then
+            return false
+        end
+    end
+    if S.pickupLuckActive then
+        local ok, luck = pcall(FM.crystalLuck, inst)
+        local luckPct = (ok and luck or 0) * 100
+        if luckPct < (S.pickupMinLuck or 0) then
+            return false
+        end
+    end
+    return true
 end
 
 local COLORS = {
@@ -1003,73 +1025,18 @@ end
 local crystalFlags = setmetatable({}, { __mode = "k" })
 
 function FM.isCrystal(inst)
-    if not inst then
-        return false
-    end
-
     local cached = crystalFlags[inst]
     if cached ~= nil then
         return cached
     end
 
     local result = false
-
-    local function looksLikeCrystal(obj)
-        if not obj then
-            return false
-        end
-        if FM.getAttr(obj, "Value") == nil then
-            return false
-        end
-        if FM.getAttr(obj, "CrystalName") ~= nil then
-            return true
-        end
-        if FM.getAttr(obj, "Tier") ~= nil then
-            return true
-        end
-        local name = tostring(obj.Name or "")
-        if name:find("Crystal", 1, true) or name:find("Gem", 1, true) then
-            return true
-        end
-        return false
-    end
-
-    if inst:IsA("BasePart") then
-        if looksLikeCrystal(inst) then
-            result = true
-        elseif inst.Parent and inst.Parent:IsA("Model") and looksLikeCrystal(inst.Parent) then
-            -- part belongs to a crystal model; treat parent as the crystal
-            result = true
-        end
-    elseif inst:IsA("Model") then
-        result = looksLikeCrystal(inst)
+    if inst and inst:IsA("BasePart") and FM.getAttr(inst, "Value") ~= nil then
+        result = FM.getAttr(inst, "CrystalName") ~= nil or inst.Name:find("Crystal", 1, true) ~= nil
     end
 
     crystalFlags[inst] = result
     return result
-end
-
--- Resolve the actual crystal instance (prefer Model with Value over child Part)
-function FM.resolveCrystal(inst)
-    if not inst then
-        return nil
-    end
-    if inst:IsA("Model") and FM.isCrystal(inst) then
-        return inst
-    end
-    if inst:IsA("BasePart") then
-        if FM.getAttr(inst, "Value") ~= nil and FM.isCrystal(inst) then
-            return inst
-        end
-        local parent = inst.Parent
-        if parent and parent:IsA("Model") and FM.isCrystal(parent) then
-            return parent
-        end
-        if FM.isCrystal(inst) then
-            return inst
-        end
-    end
-    return FM.isCrystal(inst) and inst or nil
 end
 
 local containerList = {}
@@ -2179,34 +2146,21 @@ end)
 local pickupFound = {}
 local pickupSeen = {}
 
-function FM.pickupCandidates(free, origin, rangeOverride)
+-- filterFunc(optional): extra filter, e.g. value/luck. Universe-style.
+function FM.pickupCandidates(free, origin, filterFunc)
     local found = pickupFound
     local seen = pickupSeen
     table.clear(found)
     table.clear(seen)
     local now = os.clock()
-    local useRange = rangeOverride or PICK.range
 
-    local anyPickup = S.autoPickupActive or S.pickupValueActive or S.pickupLuckActive
-    if not anyPickup then
-        return found
-    end
-
-    local function consider(raw)
-        if not raw then
-            return
-        end
-
-        local child = FM.resolveCrystal(raw) or raw
+    local function consider(child)
         if not child or seen[child] then
             return
         end
         seen[child] = true
 
-        if not child.Parent or FM.getAttr(child, "Collected") == true then
-            return
-        end
-        if not FM.isCrystal(child) then
+        if not child.Parent or not FM.isCrystal(child) or FM.getAttr(child, "Collected") == true then
             return
         end
 
@@ -2215,27 +2169,16 @@ function FM.pickupCandidates(free, origin, rangeOverride)
             return
         end
 
+        -- optional external filter (value/luck)
+        if filterFunc and not filterFunc(child) then
+            return
+        end
+
         local value = FM.crystalValue(child)
 
-        -- Auto Pickup (no value/luck filter): use ESP minValue filter if enabled
-        if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
+        -- plain Auto Pickup still respects ESP value filter when no value/luck toggle
+        if not filterFunc then
             if not FM.meetsFilter(child, value) then
-                return
-            end
-        end
-
-        -- Value filter
-        if S.pickupValueActive then
-            if value < (S.pickupMinValue or 0) then
-                return
-            end
-        end
-
-        -- Luck filter
-        if S.pickupLuckActive then
-            local ok, luck = pcall(FM.crystalLuck, child)
-            local luckPct = (ok and luck or 0) * 100
-            if luckPct < (S.pickupMinLuck or 0) then
                 return
             end
         end
@@ -2245,20 +2188,8 @@ function FM.pickupCandidates(free, origin, rangeOverride)
             return
         end
 
-        local distance
-        if child:IsA("BasePart") then
-            distance = FM.surfaceDistance(child, origin)
-        else
-            local okd, dist = pcall(function()
-                local pivot = child:GetPivot()
-                return (pivot.Position - origin).Magnitude
-            end)
-            distance = (okd and dist) or 99999
-            if child.PrimaryPart then
-                distance = math.min(distance, FM.surfaceDistance(child.PrimaryPart, origin))
-            end
-        end
-        if distance > useRange then
+        local distance = FM.surfaceDistance(child, origin)
+        if distance > PICK.range then
             return
         end
 
@@ -2274,7 +2205,7 @@ function FM.pickupCandidates(free, origin, rangeOverride)
     pickupParams.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
 
     local ok, hits = pcall(function()
-        return Workspace:GetPartBoundsInRadius(origin, useRange + PICK.pad, pickupParams)
+        return Workspace:GetPartBoundsInRadius(origin, PICK.range + PICK.pad, pickupParams)
     end)
 
     if ok and hits then
@@ -2284,17 +2215,12 @@ function FM.pickupCandidates(free, origin, rangeOverride)
     end
 
     FM.eachContainer(function(container)
-        if not container then return end
         for _, child in ipairs(container:GetChildren()) do
-            if child:IsA("BasePart") or child:IsA("Model") then
+            if child:IsA("BasePart") then
                 consider(child)
-            end
-            -- also scan one level of descendants for nested crystals
-            if child:IsA("Model") or child:IsA("Folder") then
+            elseif child:IsA("Model") then
                 for _, inner in ipairs(child:GetChildren()) do
-                    if inner:IsA("BasePart") or inner:IsA("Model") then
-                        consider(inner)
-                    end
+                    consider(inner)
                 end
             end
         end
@@ -2694,14 +2620,22 @@ function FM.instantGrab()
     end
 end
 
-function FM.pickupStep()
+-- Universe-style pickupStep with optional filterFunc
+-- filterFunc nil = plain Auto Pickup (ESP min value)
+-- filterFunc = value/luck filter
+function FM.pickupStep(filterFunc)
     local now = os.clock()
-    local cooldown, burstLimit = FM.getPickupTiming()
-    -- Plain Auto Pickup uses fixed cooldown; Value/Luck uses mode timing
-    if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
+
+    local cooldown, burstLimit
+    if filterFunc then
+        -- Value / Luck path → depends on Legit or Burst mode
+        cooldown, burstLimit = FM.getPickupTiming()
+    else
+        -- Plain Auto Pickup → original timing
         cooldown = PICK.cooldown
         burstLimit = PICK.burst
     end
+
     if now - S.lastPickup < cooldown then
         return
     end
@@ -2713,8 +2647,6 @@ function FM.pickupStep()
 
     local free = FM.backpackFree()
     if free <= 0 then
-        S.lastPickup = now
-        table.clear(S.candidates)
         if now - S.lastBagWarn >= 12 then
             S.lastBagWarn = now
             WindUI:Notify({
@@ -2733,8 +2665,8 @@ function FM.pickupStep()
         end
     end
 
-    S.candidates = FM.pickupCandidates(free, root.Position)
-    if #S.candidates == 0 then
+    local list = FM.pickupCandidates(free, root.Position, filterFunc)
+    if #list == 0 then
         if free > 0.5 then
             FM.requestStream(root.Position)
         end
@@ -2744,14 +2676,12 @@ function FM.pickupStep()
     local budget = free
     local grabs = 0
 
-    for _, entry in ipairs(S.candidates) do
+    for _, entry in ipairs(list) do
         if grabs >= burstLimit then
             break
         end
-
-        if entry.weight <= budget and budget > 0 then
+        if entry.weight <= budget then
             claimed[entry.inst] = now
-
             if FM.grabCrystal(entry.inst, entry.prompt) then
                 budget -= entry.weight
                 grabs += 1
@@ -2759,9 +2689,12 @@ function FM.pickupStep()
         end
     end
 
-    S.lastPickup = now
+    if grabs > 0 then
+        S.lastPickup = now
+    end
 end
 
+-- Used by farm loop (Money farm step). Same filter as value/luck toggles.
 function FM.tryFilteredCrystalPickup(origin, free)
     if free == nil then
         free = FM.backpackFree()
@@ -2769,7 +2702,6 @@ function FM.tryFilteredCrystalPickup(origin, free)
     if free <= 0 then
         return false
     end
-
     if not S.pickupValueActive and not S.pickupLuckActive then
         return false
     end
@@ -2780,42 +2712,33 @@ function FM.tryFilteredCrystalPickup(origin, free)
         return false
     end
 
-    -- pickupCandidates already applies value/luck filters
-    local list = S._filterCandCache
-    local cacheTtl = (S.pickupMode == "Burst") and 0.25 or 0.5
-    if not list or now - (S._filterCandAt or 0) > cacheTtl then
-        list = FM.pickupCandidates(free, origin)
-        S._filterCandCache = list
-        S._filterCandAt = now
-    end
-
+    local list = FM.pickupCandidates(free, origin, FM.valueLuckFilter)
     if not list or #list == 0 then
         return false
     end
 
     local grabs = 0
-    local i = 1
-    while i <= #list and grabs < burstLimit do
-        local entry = list[i]
-        if entry and entry.inst and entry.inst.Parent and FM.getAttr(entry.inst, "Collected") ~= true then
-            claimed[entry.inst] = now
-            if FM.grabCrystal(entry.inst, entry.prompt) then
-                S.lastFilteredPickup = now
-                S.lastPickup = now
-                table.remove(list, i)
-                grabs += 1
-            else
-                i += 1
+    for _, entry in ipairs(list) do
+        if grabs >= burstLimit then
+            break
+        end
+        if entry.inst and entry.inst.Parent and FM.getAttr(entry.inst, "Collected") ~= true then
+            if entry.weight <= free then
+                claimed[entry.inst] = now
+                if FM.grabCrystal(entry.inst, entry.prompt) then
+                    free -= entry.weight
+                    grabs += 1
+                end
             end
-        else
-            table.remove(list, i)
         end
     end
 
-    if #list == 0 then
-        S._filterCandCache = nil
+    if grabs > 0 then
+        S.lastFilteredPickup = now
+        S.lastPickup = now
+        return true
     end
-    return grabs > 0
+    return false
 end
 
 function FM.updateBackpackLabel()
@@ -2944,12 +2867,15 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         S._pickupAcc = (S._pickupAcc or 0) + deltaTime
         local tickRate = PACE.pickup or 0.08
         if S.pickupValueActive or S.pickupLuckActive then
-            -- more responsive when value/luck mode is on
-            tickRate = (S.pickupMode == "Burst") and 0.05 or 0.1
+            tickRate = (S.pickupMode == "Burst") and 0.04 or 0.1
         end
         if S._pickupAcc >= tickRate then
             S._pickupAcc = 0
-            local ok, err = pcall(FM.pickupStep)
+            local filterFunc = nil
+            if S.pickupValueActive or S.pickupLuckActive then
+                filterFunc = FM.valueLuckFilter
+            end
+            local ok, err = pcall(FM.pickupStep, filterFunc)
             if not ok then
                 FM.reportError("pickup", err)
             end
@@ -6289,7 +6215,8 @@ do
 
             if S.pickupValueActive or S.pickupLuckActive then
                 filterPickClock = (filterPickClock or 0) + deltaTime
-                if filterPickClock >= 0.12 then
+                local filterTick = (S.pickupMode == "Burst") and 0.04 or 0.12
+                if filterPickClock >= filterTick then
                     filterPickClock = 0
                     local free = FM.backpackFree()
                     if free > 0 and FM.tryFilteredCrystalPickup(root.Position, free) then
@@ -7161,7 +7088,11 @@ do
                 end
             end
 
-            FM.pickupStep()
+            if S.autoPickupActive then
+                FM.pickupStep()
+            elseif S.pickupValueActive or S.pickupLuckActive then
+                FM.pickupStep(FM.valueLuckFilter)
+            end
 
             if heldPick == nil or heldPick.Parent ~= LocalPlayer.Character then
                 equipClock = 0
