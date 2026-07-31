@@ -575,193 +575,6 @@ function FM.crystalLuck(inst)
     return FM.computeLuck(inst)
 end
 
-
-
-
-function FM.FayyNotify(opts)
-    pcall(function()
-        if WindUI and WindUI.Notify then
-            FM.FayyNotify(opts)
-        end
-    end)
-end
-
-function FM.getOwnedPlotForPlace()
-    local things = Workspace:FindFirstChild("Things")
-    local plots = things and things:FindFirstChild("Plots")
-    local slots = plots and plots:FindFirstChild("Slots")
-    if not slots then
-        return nil, nil
-    end
-    local plot = slots:FindFirstChild(LocalPlayer.Name)
-    if not plot then
-        for _, slot in ipairs(slots:GetChildren()) do
-            local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
-            if owner == LocalPlayer.Name or owner == LocalPlayer.UserId or tostring(owner) == tostring(LocalPlayer.UserId) then
-                plot = slot
-                break
-            end
-        end
-    end
-    if not plot then
-        return nil, nil
-    end
-    local region = plot:FindFirstChild("Region")
-    if not (region and region:IsA("BasePart")) then
-        return plot, nil
-    end
-    return plot, region
-end
-
-function FM.crystalPlaceWorldPos(region, objectSize)
-    local cf = region.CFrame
-    local size = region.Size
-    local half = size * 0.5
-    local padX = math.max(half.X - 1.5, 1)
-    local padZ = math.max(half.Z - 1.5, 1)
-    local oh = (objectSize or Vector3.new(2, 2, 2)) * 0.5
-    local lx = (math.random() - 0.5) * 2 * padX
-    local lz = (math.random() - 0.5) * 2 * padZ
-    local ly = oh.Y + 0.05
-    local bottomLocal = Vector3.new(lx, ly - half.Y, lz)
-    return cf:PointToWorldSpace(bottomLocal)
-end
-
-function FM.toolPlaceSize(tool)
-    local handle = tool and tool:FindFirstChild("Handle")
-    if handle and handle:IsA("BasePart") then
-        return handle.Size
-    end
-    local fx = tonumber(tool and FM.getAttr(tool, "FinalSizeX"))
-    local fy = tonumber(tool and FM.getAttr(tool, "FinalSizeY"))
-    local fz = tonumber(tool and FM.getAttr(tool, "FinalSizeZ"))
-    if fx and fy and fz then
-        return Vector3.new(fx, fy, fz)
-    end
-    return Vector3.new(2, 2, 2)
-end
-
-function FM.isPlaceableCrystalTool(tool)
-    if not tool or not tool:IsA("Tool") then
-        return false
-    end
-    if FM.getAttr(tool, "Tier") == nil then
-        return false
-    end
-    -- runes often have Rune in name / no WeightKg sometimes - still allow Tier tools
-    if type(tool.Name) == "string" and tool.Name:find("Rune", 1, true) then
-        return false
-    end
-    return true
-end
-
-function FM.placeCrystalToolOnPlot(tool, remote, region)
-    if not tool or not tool.Parent or not remote or not region then
-        return false
-    end
-    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid and tool.Parent ~= LocalPlayer.Character then
-        pcall(function()
-            humanoid:EquipTool(tool)
-        end)
-        task.wait(0.15)
-    end
-    local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
-    held = held or tool
-    if not held or not held.Parent then
-        return false
-    end
-    local pos = FM.crystalPlaceWorldPos(region, FM.toolPlaceSize(held))
-    local yaw = math.random() * math.pi * 2
-    local ok = pcall(function()
-        remote:FireServer(held.Name, pos, yaw, held)
-    end)
-    return ok == true
-end
-
-function FM.placeAllBackpackCrystals()
-    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
-    if not remote then
-        FM.FayyNotify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
-        return
-    end
-    local plot, region = FM.getOwnedPlotForPlace()
-    if not region then
-        FM.FayyNotify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
-        return
-    end
-    if S._placingCrystals then
-        return
-    end
-    S._placingCrystals = true
-    task.spawn(function()
-        local tools = {}
-        local function scan(container)
-            if not container then return end
-            for _, child in ipairs(container:GetChildren()) do
-                if FM.isPlaceableCrystalTool(child) then
-                    tools[#tools + 1] = child
-                end
-            end
-        end
-        scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
-        scan(LocalPlayer.Character)
-        local placed = 0
-        for _, tool in ipairs(tools) do
-            if S._stopCrystalOps then
-                break
-            end
-            if tool and tool.Parent and FM.placeCrystalToolOnPlot(tool, remote, region) then
-                placed += 1
-            end
-            task.wait(1.2)
-        end
-        S._placingCrystals = false
-        FM.FayyNotify({
-            Title = "Plant Crystals",
-            Content = string.format("Placed %d crystal(s) on plot", placed),
-            Duration = 3,
-            Icon = placed > 0 and "check" or "alert-circle",
-        })
-    end)
-end
-
-function FM.plantHeldCrystal()
-    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
-    if not remote then
-        FM.FayyNotify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
-        return
-    end
-    local plot, region = FM.getOwnedPlotForPlace()
-    if not region then
-        FM.FayyNotify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
-        return
-    end
-    local char = LocalPlayer.Character
-    local held = nil
-    if char then
-        for _, child in ipairs(char:GetChildren()) do
-            if FM.isPlaceableCrystalTool(child) then
-                held = child
-                break
-            end
-        end
-    end
-    if not held then
-        FM.FayyNotify({ Title = "Plant", Content = "Hold a crystal first", Duration = 2, Icon = "alert-circle" })
-        return
-    end
-    task.spawn(function()
-        local ok = FM.placeCrystalToolOnPlot(held, remote, region)
-        FM.FayyNotify({
-            Title = "Plant Crystal",
-            Content = ok and ("Planted " .. held.Name) or "Failed to plant",
-            Duration = 2,
-            Icon = ok and "check" or "alert-circle",
-        })
-    end)
-end
-
 function FM.meetsFilter(inst, value)
     if S.valueFilter then
         if (value or FM.crystalValue(inst)) < S.minValue then
@@ -3683,7 +3496,7 @@ end
 
 local Move = {}
 
-;(function()
+do
     local function install()
         local FLY_KEYS = {
             { key = Enum.KeyCode.W, axis = "look", sign = 1 },
@@ -4302,92 +4115,66 @@ function FM.teleportToMountainPeak()
         end
     end)
 
-    S._peakTweening = true
-    task.spawn(function()
-        local deadline = os.clock() + 45
-        local attempts = 0
-        while S._peakTweening and os.clock() < deadline do
-            local goal = FM.mountainPeakPosition() or peak
-            peak = goal
-            FM.requestStream(goal)
-            pcall(function()
-                LocalPlayer:RequestStreamAroundAsync(goal, 5)
-            end)
-            pcall(function()
-                if Move.setNoclip then Move.setNoclip(true) end
-            end)
-            pcall(function()
-                Move.glide(CFrame.new(goal), goal)
-            end)
-            attempts += 1
-
-            local arrived = false
-            for _ = 1, 25 do
-                if not S._peakTweening then
-                    break
-                end
-                local root = FM.getRoot()
-                if root and (root.Position - goal).Magnitude <= 14 then
-                    -- re-scan true peak; continue if higher ground found
-                    local recheck = FM.mountainPeakPosition()
-                    if recheck and recheck.Y > goal.Y + 8 and (root.Position - recheck).Magnitude > 18 then
-                        peak = recheck
-                        break
-                    end
-                    arrived = true
-                    break
-                end
-                task.wait(0.2)
-            end
-
-            if arrived then
-                break
-            end
-            task.wait(0.15)
-        end
-
-        S._peakTweening = false
-        pcall(function()
-            if Move and Move.glideStop then Move.glideStop() end
-        end)
-        pcall(function()
-            if Move and Move.setNoclip then Move.setNoclip(false) end
-        end)
-        local root = FM.getRoot()
-        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if root then
-            pcall(function()
-                root.Anchored = false
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-            end)
-        end
-        if humanoid then
-            pcall(function()
-                humanoid.PlatformStand = false
-                if humanoid.WalkSpeed < 8 then humanoid.WalkSpeed = 16 end
-            end)
-        end
-
-        local root2 = FM.getRoot()
-        local finalPeak = FM.mountainPeakPosition() or peak
-        local dist = root2 and (root2.Position - finalPeak).Magnitude or 999
+    local ok = Move.glide(CFrame.new(peak), peak)
+    if not ok then
         WindUI:Notify({
             Title = "Mine A Mountain",
-            Content = dist <= 18
-                and string.format("At peak Y=%.0f", finalPeak.Y)
-                or string.format("Peak attempt done (%.0fm away)", dist),
+            Content = "Failed to start tween",
             Duration = 3,
-            Icon = dist <= 18 and "check" or "alert-circle",
+            Icon = "alert-circle",
         })
-    end)
+        return false
+    end
 
     WindUI:Notify({
         Title = "Mine A Mountain",
-        Content = "Tweening to mountain peak...",
+        Content = string.format("Tween to peak Y=%.0f", peak.Y),
         Duration = 2,
         Icon = "check",
     })
+
+    S._peakTweening = true
+    task.spawn(function()
+        local deadline = os.clock() + 25
+        while S._peakTweening and os.clock() < deadline do
+            local root = FM.getRoot()
+            if root and (root.Position - peak).Magnitude <= 12 then
+                break
+            end
+            task.wait(0.2)
+        end
+        if S._peakTweening then
+            S._peakTweening = false
+            pcall(function()
+                if Move and Move.glideStop then
+                    Move.glideStop()
+                end
+            end)
+            pcall(function()
+                if Move and Move.setNoclip then
+                    Move.setNoclip(false)
+                end
+            end)
+            local root = FM.getRoot()
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if root then
+                pcall(function()
+                    root.Anchored = false
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
+            if humanoid then
+                pcall(function()
+                    humanoid.PlatformStand = false
+                    if humanoid.WalkSpeed < 8 then
+                        humanoid.WalkSpeed = 16
+                    end
+                end)
+            end
+        end
+    end)
+
     return true
 end
 
@@ -4852,12 +4639,12 @@ do
     end
 
     install()
-end)()
+end
 
 local Net = {}
 local netConns = {}
 
-;(function()
+do
     local function install()
         local HttpService = game:GetService("HttpService")
         local TeleportService = game:GetService("TeleportService")
@@ -5346,12 +5133,13 @@ function FM.safeModeStep()
     end
 
     return false
-end)()
+end
+
 
 local Farm = {}
 local farmConn
 
-;(function()
+do
     local function install()
         local FARM_KINDS = { "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite" }
 
@@ -6429,12 +6217,12 @@ local farmConn
     end
 
     install()
-end)()
+end
 
 local Money = {}
 local moneyConn
 
-;(function()
+do
     local function install()
         local SCAN_SPOTS = {
             CFrame.new(
@@ -6904,19 +6692,16 @@ local moneyConn
                 statusText = "Terrain loaded (no character scan)"
             end
 
-            -- Long-range Auto Plant Luck (same as place rune remote)
+            -- Long-range Auto Plant Luck (no teleport)
             if autoPlantLuck and now - plantClock >= 3.5 then
                 plantClock = now
                 local tools = {}
                 local function scanTools(container)
                     if not container then return end
                     for _, child in ipairs(container:GetChildren()) do
-                        if FM.isPlaceableCrystalTool(child) then
-                            local luck = 0
-                            pcall(function()
-                                luck = FM.crystalLuck(child) or 0
-                            end)
-                            if luck * 100 >= (minLuckPoints or 5) then
+                        if child:IsA("Tool") and FM.getAttr(child, "Tier") ~= nil then
+                            local luck = FM.crystalLuck(child) or 0
+                            if luck * 100 >= 5 then
                                 tools[#tools + 1] = child
                             end
                         end
@@ -6924,15 +6709,48 @@ local moneyConn
                 end
                 scanTools(LocalPlayer:FindFirstChildOfClass("Backpack"))
                 scanTools(LocalPlayer.Character)
-                local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
-                local _, region = FM.getOwnedPlotForPlace()
-                if remote and region and #tools > 0 then
-                    if FM.placeCrystalToolOnPlot(tools[1], remote, region) then
-                        statusText = "Planted luck (long range)"
+                if #tools >= 3 and PlotPlaceRequest then
+                    local plot = nil
+                    local things = Workspace:FindFirstChild("Things")
+                    local plots = things and things:FindFirstChild("Plots")
+                    local slots = plots and plots:FindFirstChild("Slots")
+                    if slots then
+                        plot = slots:FindFirstChild(LocalPlayer.Name)
+                        if not plot then
+                            for _, slot in ipairs(slots:GetChildren()) do
+                                local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
+                                if owner == LocalPlayer.Name or owner == LocalPlayer.UserId then
+                                    plot = slot
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if plot then
+                        local region = plot:FindFirstChild("Region")
+                        local basePos = nil
+                        if region and region:IsA("BasePart") then
+                            basePos = region.Position
+                        else
+                            local ok, pivot = pcall(function() return plot:GetPivot().Position end)
+                            if ok and pivot then basePos = pivot end
+                        end
+                        if basePos then
+                            for i, tool in ipairs(tools) do
+                                if i > 12 then break end
+                                local col = (i - 1) % 6
+                                local row = math.floor((i - 1) / 6)
+                                local plantSpot = basePos + Vector3.new(col * 4 - 10, 0, row * 4 - 10)
+                                pcall(function()
+                                    PlotPlaceRequest:FireServer(tool.Name, plantSpot, 0, tool)
+                                end)
+                                task.wait(0.07)
+                            end
+                            statusText = "Planted luck (long range)"
+                        end
                     end
                 end
             end
-
 
             if sellUntil > 0 then
                 if now < sellUntil then
@@ -7215,16 +7033,6 @@ local moneyConn
             end
         })
 
-        MoneyBox:Button({
-            Title = "Place All Crystals On Plot",
-            Callback = FM.placeAllBackpackCrystals,
-        })
-
-        MoneyBox:Button({
-            Title = "Plant Held Crystal",
-            Callback = FM.plantHeldCrystal,
-        })
-
         local StatusLabel = MoneyBox:Paragraph({
             Title = "Status",
         })
@@ -7250,11 +7058,11 @@ local moneyConn
     end
 
     install()
-end)()
+end
 
 local fastDigConn
 
-;(function()
+do
     local swingClock = 0
 
     local function getHeldPick()
@@ -7452,7 +7260,7 @@ local fastDigConn
             FM.reportError("fastDig", err)
         end
     end)
-end)()
+end
 
 do
     local function install()
@@ -8277,46 +8085,6 @@ do
         })
 
         ShopBox:Button({
-            Title = "Check Bomb Stock",
-            Callback = function()
-                task.spawn(function()
-                    local query = BombShopQuery or FM.findRemote("BombShopQuery")
-                    if not query then
-                        WindUI:Notify({ Title = "Bomb Shop", Content = "BombShopQuery missing", Duration = 3, Icon = "alert-circle" })
-                        return
-                    end
-                    local ok, data = pcall(function()
-                        return query:InvokeServer()
-                    end)
-                    if not ok or not data or not data.stock then
-                        WindUI:Notify({ Title = "Bomb Shop", Content = "Could not read stock", Duration = 3, Icon = "alert-circle" })
-                        return
-                    end
-                    local lines = {}
-                    local any = false
-                    for bombId, amount in pairs(data.stock) do
-                        local count = tonumber(amount) or 0
-                        if count > 0 then
-                            any = true
-                            lines[#lines + 1] = string.format("%s: %d", tostring(bombId), count)
-                        end
-                    end
-                    table.sort(lines)
-                    if not any then
-                        WindUI:Notify({ Title = "Bomb Stock", Content = "No bombs in stock", Duration = 3, Icon = "alert-circle" })
-                    else
-                        WindUI:Notify({
-                            Title = "Bomb Stock",
-                            Content = table.concat(lines, " | "),
-                            Duration = 5,
-                            Icon = "check",
-                        })
-                    end
-                end)
-            end
-        })
-
-        ShopBox:Button({
             Title = "Open Bomb Shop",
             Callback = function()
                 pcall(function()
@@ -8665,7 +8433,7 @@ end
     install()
 end
 
-;(function()
+do
     local ADMIN_NAMES = {
         Firemalte07 = true,
         BAiLeymen = true,
@@ -8786,4 +8554,5 @@ end
             scanAdmins()
         end
     end)
-end)()
+end
+
