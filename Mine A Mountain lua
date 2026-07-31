@@ -7323,13 +7323,33 @@ do
                 end
 
                 task.wait(0.2)
-                if GoHome then
-                    pcall(function()
-                        fireRemote(GoHome, "home")
+
+                -- After all pickups: go to center of own plot (not home/base)
+                local centerPos = nil
+                local region = plot:FindFirstChild("Region")
+                if region and region:IsA("BasePart") then
+                    centerPos = region.Position + Vector3.new(0, 4, 0)
+                else
+                    local ok, pivot = pcall(function()
+                        return plot:GetPivot().Position
                     end)
+                    if ok and pivot then
+                        centerPos = pivot + Vector3.new(0, 4, 0)
+                    end
                 end
 
-                task.wait(0.5)
+                if centerPos then
+                    pcall(teleportTo, centerPos)
+                    task.wait(0.25)
+                    local root = getRoot()
+                    if root then
+                        pcall(function()
+                            root.CFrame = CFrame.new(centerPos)
+                        end)
+                    end
+                end
+
+                task.wait(0.3)
                 if Move and Move.setFly then
                     pcall(Move.setFly, false)
                 end
@@ -7339,7 +7359,7 @@ do
 
                 WindUI:Notify({
                     Title = "Pickup Runes",
-                    Content = string.format("Success %d | Failed %d | returning home", picked, failed),
+                    Content = string.format("Success %d | Failed %d | at plot center", picked, failed),
                     Duration = 3,
                     Icon = picked > 0 and "check" or "alert-circle",
                 })
@@ -7493,33 +7513,44 @@ do
 
         local ShopBox = Tabs.shop
 
+        local function fireShopPrompt(prompt)
+            if not prompt then
+                return false
+            end
+            pcall(function()
+                prompt.HoldDuration = 0
+                prompt.RequiresLineOfSight = false
+                prompt.Enabled = true
+                prompt.MaxActivationDistance = 1e6
+            end)
+            if typeof(fireproximityprompt) == "function" then
+                local ok = pcall(fireproximityprompt, prompt, 1)
+                if ok then
+                    return true
+                end
+                ok = pcall(fireproximityprompt, prompt)
+                if ok then
+                    return true
+                end
+            end
+            return pcall(function()
+                prompt:InputHoldBegin()
+                task.wait(0.05)
+                prompt:InputHoldEnd()
+            end)
+        end
+
         ShopBox:Button({
             Title = "Open Bomb Shop",
             Callback = function()
                 pcall(function()
-                    local remote = ReplicatedStorage:FindFirstChild("Remotes")
-                    remote = remote and remote:FindFirstChild("BombOpen")
-                    local barry = Workspace:FindFirstChild("Things")
-                    barry = barry and barry:FindFirstChild("BomberBarry")
-                    if not remote or not barry then
-                        return
-                    end
-                    if typeof(firesignal) == "function" then
-                        firesignal(remote.OnClientEvent, barry)
-                    else
-                        local handlers = getconnections and getconnections(remote.OnClientEvent)
-                        if handlers then
-                            for _, conn in ipairs(handlers) do
-                                pcall(function()
-                                    if conn.Fire then
-                                        conn:Fire(barry)
-                                    elseif conn.Function then
-                                        conn.Function(barry)
-                                    end
-                                end)
-                            end
-                        end
-                    end
+                    local things = Workspace:FindFirstChild("Things")
+                    local barry = things and things:FindFirstChild("BomberBarry")
+                    local torso = barry and (barry:FindFirstChild("Torso") or barry:FindFirstChild("HumanoidRootPart") or barry:FindFirstChildWhichIsA("BasePart", true))
+                    local prompt = (torso and torso:FindFirstChild("BombPrompt"))
+                        or (barry and barry:FindFirstChild("BombPrompt", true))
+                        or (torso and torso:FindFirstChildWhichIsA("ProximityPrompt"))
+                    fireShopPrompt(prompt)
                 end)
             end
         })
@@ -7528,29 +7559,10 @@ do
             Title = "Open Backpack Shop",
             Callback = function()
                 pcall(function()
-                    local remote = ReplicatedStorage:FindFirstChild("Remotes")
-                    remote = remote and remote:FindFirstChild("UpgradeOpen")
-                    local npc = Workspace:FindFirstChild("Things")
-                    npc = npc and npc:FindFirstChild("ProClimber")
-                    if not remote or not npc then
-                        return
-                    end
-                    if typeof(firesignal) == "function" then
-                        firesignal(remote.OnClientEvent, npc)
-                    else
-                        local handlers = getconnections and getconnections(remote.OnClientEvent)
-                        if handlers then
-                            for _, conn in ipairs(handlers) do
-                                pcall(function()
-                                    if conn.Fire then
-                                        conn:Fire(npc)
-                                    elseif conn.Function then
-                                        conn.Function(npc)
-                                    end
-                                end)
-                            end
-                        end
-                    end
+                    local things = Workspace:FindFirstChild("Things")
+                    local upgrades = things and things:FindFirstChild("UpgradesProx")
+                    local prompt = upgrades and (upgrades:FindFirstChild("ProximityPrompt") or upgrades:FindFirstChildWhichIsA("ProximityPrompt", true))
+                    fireShopPrompt(prompt)
                 end)
             end
         })
