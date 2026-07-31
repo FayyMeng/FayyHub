@@ -2125,12 +2125,16 @@ local function dropAllCrystals()
         return
     end
     S._droppingCrystals = true
+    S._stopCrystalOps = false
 
     task.spawn(function()
         local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         local dropped = 0
 
         for _, tool in ipairs(crystals) do
+            if S._stopCrystalOps then
+                break
+            end
             if not tool or not tool.Parent then
                 continue
             end
@@ -2175,6 +2179,7 @@ local function pickupAllDroppedCrystals()
         return
     end
     S._pickingDropped = true
+    S._stopCrystalOps = false
 
     task.spawn(function()
         local radius = 80
@@ -2218,6 +2223,9 @@ local function pickupAllDroppedCrystals()
 
         local picked = 0
         for _, crystal in ipairs(targets) do
+            if S._stopCrystalOps then
+                break
+            end
             if not crystal.Parent or getAttr(crystal, "Collected") == true then
                 continue
             end
@@ -4310,6 +4318,11 @@ do
         PickupBox:Button({
             Title = "Pickup All Dropped Crystals",
             Callback = pickupAllDroppedCrystals,
+        })
+
+        PickupBox:Button({
+            Title = "Stop Drop / Pickup Crystals",
+            Callback = stopCrystalDropPickup,
         })
 
         PickupBox:Toggle({
