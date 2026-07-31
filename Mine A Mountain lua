@@ -130,7 +130,7 @@ local PACE = {
     stats = 0.75,
     distance = 0.4,
     playerEsp = 0.5,
-    pickup = 1.2,
+    pickup = 0.15,
 }
 
 local TP = {
@@ -157,9 +157,9 @@ local PICK = {
     aimRange = 5000,
     aimDot = 0.995,
     range = 13,
-    cooldown = 1.2,
-    restore = 0.25,
-    burst = 1,
+    cooldown = 0.2,
+    restore = 0.2,
+    burst = 2,
     retry = 0.35,
     forget = 5,
     pad = 4,
@@ -2362,23 +2362,18 @@ local function tryFilteredCrystalPickup(origin, free)
     end
 
     local now = os.clock()
-    if now - (S.lastFilteredPickup or 0) < 1.2 then
+    -- Short gap between individual grabs (responsive, not instant-spam)
+    if now - (S.lastFilteredPickup or 0) < 0.1 then
         return false
     end
 
-    -- Cache candidate scan (avoids heavy overlap every call)
+    -- Heavy world scan is cached; grabs use the cache only
     local list = S._filterCandCache
-    if not list or now - (S._filterCandAt or 0) > 1.0 then
+    if not list or now - (S._filterCandAt or 0) > 0.65 then
         list = pickupCandidates(free, origin)
-        S._filterCandCache = list
-        S._filterCandAt = now
-    end
-    if not list or #list == 0 then
-        return false
-    end
-
-    for _, entry in ipairs(list) do
-        if entry.weight <= free then
+        -- Pre-filter by value/luck once when building cache
+        local filtered = {}
+        for _, entry in ipairs(list or {}) do
             local okValue = not S.pickupValueActive or entry.value >= (S.pickupMinValue or 0)
             local okLuck = true
             if S.pickupLuckActive then
@@ -2386,18 +2381,35 @@ local function tryFilteredCrystalPickup(origin, free)
                 local luckPct = (luckOk and luck or 0) * 100
                 okLuck = luckPct >= (S.pickupMinLuck or 0)
             end
-            if okValue and okLuck then
-                claimed[entry.inst] = now
-                if grabCrystal(entry.inst, entry.prompt) then
-                    S.lastFilteredPickup = now
-                    S.lastPickup = now
-                    S._filterCandCache = nil
-                    return true
-                end
+            if okValue and okLuck and entry.weight <= free then
+                filtered[#filtered + 1] = entry
+            end
+        end
+        list = filtered
+        S._filterCandCache = list
+        S._filterCandAt = now
+    end
+
+    if not list or #list == 0 then
+        return false
+    end
+
+    -- Take first still-valid candidate from cache
+    for i = 1, #list do
+        local entry = list[i]
+        if entry and entry.inst and entry.inst.Parent and getAttr(entry.inst, "Collected") ~= true then
+            claimed[entry.inst] = now
+            if grabCrystal(entry.inst, entry.prompt) then
+                S.lastFilteredPickup = now
+                S.lastPickup = now
+                table.remove(list, i)
+                return true
             end
         end
     end
 
+    -- Cache exhausted / stale
+    S._filterCandCache = nil
     return false
 end
 
@@ -5857,7 +5869,7 @@ do
 
             if S.pickupValueActive or S.pickupLuckActive then
                 filterPickClock = (filterPickClock or 0) + deltaTime
-                if filterPickClock >= 1.2 then
+                if filterPickClock >= 0.12 then
                     filterPickClock = 0
                     local free = backpackFree()
                     if free > 0 and tryFilteredCrystalPickup(root.Position, free) then
