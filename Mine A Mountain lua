@@ -172,7 +172,21 @@ local PICK = {
     pad = 4,
     instantRadius = 90,
     instantTick = 0.6,
+    -- modes for value/luck pickup
+    legitCooldown = 0.28,
+    legitBurst = 1,
+    burstCooldown = 0.06,
+    burstBurst = 5,
+    ragdollRange = 22,
+    ragdollWindow = 2.8,
 }
+
+function FM.getPickupTiming()
+    if S.pickupMode == "Burst" then
+        return PICK.burstCooldown, PICK.burstBurst
+    end
+    return PICK.legitCooldown, PICK.legitBurst
+end
 
 local COLORS = {
     money = Color3.fromRGB(60, 255, 90),
@@ -309,6 +323,8 @@ local S = {
     pickupLuckActive    = false,
     pickupMinValue      = 1000000000,
     pickupMinLuck       = 0,
+    pickupMode          = "Legit", -- "Legit" | "Burst"
+    _ragdollPickupUntil = 0,
     autoBuyBombs        = false,
     focusLuck           = false,
     minLuckPoints       = 10,
@@ -725,25 +741,52 @@ function FM.placeCrystalTool(tool, region)
     if not remote or not tool or not region then
         return false
     end
+
     local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    -- Faster + more reliable equip
     if humanoid and tool.Parent ~= LocalPlayer.Character then
         pcall(function()
             humanoid:EquipTool(tool)
         end)
-        task.wait(0.18)
+        local waited = 0
+        while waited < 0.45 do
+            task.wait(0.05)
+            waited += 0.05
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name) then
+                break
+            end
+        end
     end
+
     local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
     held = held or tool
     if not held or not held.Parent then
         return false
     end
+
     local handle = held:FindFirstChild("Handle")
     local objectSize = (handle and handle:IsA("BasePart") and handle.Size) or Vector3.new(2, 2, 2)
-    local pos = FM.crystalPlotPos(region, objectSize)
-    local ok = pcall(function()
-        remote:FireServer(held.Name, pos, 0, held)
-    end)
-    return ok == true
+
+    -- Retry place up to 3 times with slight position jitter (helps failed places)
+    for attempt = 1, 3 do
+        local pos = FM.crystalPlotPos(region, objectSize)
+        local ok = pcall(function()
+            remote:FireServer(held.Name, pos, 0, held)
+        end)
+        if ok then
+            -- short settle so next crystal doesn't collide with previous place
+            task.wait(0.18)
+            -- success if tool left character / backpack (placed) or still held after fire
+            if not held.Parent or held.Parent == Workspace then
+                return true
+            end
+            -- still held → try again
+            task.wait(0.12)
+        else
+            task.wait(0.1)
+        end
+    end
+    return false
 end
 
 function FM.placeAllBackpackCrystals()
@@ -804,7 +847,7 @@ function FM.placeAllBackpackCrystals()
                     placed += 1
                 end
             end
-            task.wait(1.2)
+            task.wait(0.35)
         end
         S._placingCrystals = false
         WindUI:Notify({
@@ -2086,12 +2129,14 @@ end)
 local pickupFound = {}
 local pickupSeen = {}
 
-function FM.pickupCandidates(free, origin)
+function FM.pickupCandidates(free, origin, rangeOverride)
     local found = pickupFound
     local seen = pickupSeen
     table.clear(found)
     table.clear(seen)
     local now = os.clock()
+    local useRange = rangeOverride or PICK.range
+    local isRagdollRecover = now < (S._ragdollPickupUntil or 0)
 
     local function consider(child)
         if not child or seen[child] then
@@ -2110,28 +2155,31 @@ function FM.pickupCandidates(free, origin)
 
         local value = FM.crystalValue(child)
 
-        if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
-            if not FM.meetsFilter(child, value) then
+        -- During ragdoll recovery: pick ANY nearby crystal (no filter)
+        if not isRagdollRecover then
+            if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
+                if not FM.meetsFilter(child, value) then
+                    return
+                end
+            end
+
+            if S.pickupValueActive then
+                if value < (S.pickupMinValue or 0) then
+                    return
+                end
+            end
+
+            if S.pickupLuckActive then
+                local ok, luck = pcall(FM.crystalLuck, child)
+                local luckPct = (ok and luck or 0) * 100
+                if luckPct < (S.pickupMinLuck or 0) then
+                    return
+                end
+            end
+
+            if not S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
                 return
             end
-        end
-
-        if S.pickupValueActive then
-            if value < (S.pickupMinValue or 0) then
-                return
-            end
-        end
-
-        if S.pickupLuckActive then
-            local ok, luck = pcall(FM.crystalLuck, child)
-            local luckPct = (ok and luck or 0) * 100
-            if luckPct < (S.pickupMinLuck or 0) then
-                return
-            end
-        end
-
-        if not S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
-            return
         end
 
         local weight = FM.crystalWeight(child)
@@ -2140,7 +2188,7 @@ function FM.pickupCandidates(free, origin)
         end
 
         local distance = FM.surfaceDistance(child, origin)
-        if distance > PICK.range then
+        if distance > useRange then
             return
         end
 
@@ -2156,7 +2204,7 @@ function FM.pickupCandidates(free, origin)
     pickupParams.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
 
     local ok, hits = pcall(function()
-        return Workspace:GetPartBoundsInRadius(origin, PICK.range + PICK.pad, pickupParams)
+        return Workspace:GetPartBoundsInRadius(origin, useRange + PICK.pad, pickupParams)
     end)
 
     if ok and hits then
@@ -2573,7 +2621,14 @@ end
 
 function FM.pickupStep()
     local now = os.clock()
-    if now - S.lastPickup < PICK.cooldown then
+    local cooldown, burstLimit = FM.getPickupTiming()
+    -- Auto pickup uses mode timing; ragdoll recovery uses burst-like speed
+    local isRagdollRecover = now < (S._ragdollPickupUntil or 0)
+    if isRagdollRecover then
+        cooldown = PICK.burstCooldown
+        burstLimit = PICK.burstBurst
+    end
+    if now - S.lastPickup < cooldown then
         return
     end
 
@@ -2604,7 +2659,8 @@ function FM.pickupStep()
         end
     end
 
-    S.candidates = FM.pickupCandidates(free, root.Position)
+    local rangeOverride = isRagdollRecover and PICK.ragdollRange or nil
+    S.candidates = FM.pickupCandidates(free, root.Position, rangeOverride)
     if #S.candidates == 0 then
         if free > 0.5 then
             FM.requestStream(root.Position)
@@ -2616,7 +2672,7 @@ function FM.pickupStep()
     local grabs = 0
 
     for _, entry in ipairs(S.candidates) do
-        if grabs >= PICK.burst then
+        if grabs >= burstLimit then
             break
         end
 
@@ -2630,11 +2686,7 @@ function FM.pickupStep()
         end
     end
 
-    if grabs > 0 then
-        S.lastPickup = now
-    else
-        S.lastPickup = now
-    end
+    S.lastPickup = now
 end
 
 function FM.tryFilteredCrystalPickup(origin, free)
@@ -2650,14 +2702,15 @@ function FM.tryFilteredCrystalPickup(origin, free)
     end
 
     local now = os.clock()
-    -- Short gap between individual grabs (responsive, not instant-spam)
-    if now - (S.lastFilteredPickup or 0) < 0.1 then
+    local cooldown, burstLimit = FM.getPickupTiming()
+    if now - (S.lastFilteredPickup or 0) < cooldown then
         return false
     end
 
     -- Heavy world scan is cached; grabs use the cache only
     local list = S._filterCandCache
-    if not list or now - (S._filterCandAt or 0) > 0.65 then
+    local cacheTtl = (S.pickupMode == "Burst") and 0.35 or 0.65
+    if not list or now - (S._filterCandAt or 0) > cacheTtl then
         list = FM.pickupCandidates(free, origin)
         -- Pre-filter by value/luck once when building cache
         local filtered = {}
@@ -2682,8 +2735,9 @@ function FM.tryFilteredCrystalPickup(origin, free)
         return false
     end
 
-    -- Take first still-valid candidate from cache
-    for i = 1, #list do
+    local grabs = 0
+    local i = 1
+    while i <= #list and grabs < burstLimit do
         local entry = list[i]
         if entry and entry.inst and entry.inst.Parent and FM.getAttr(entry.inst, "Collected") ~= true then
             claimed[entry.inst] = now
@@ -2691,13 +2745,23 @@ function FM.tryFilteredCrystalPickup(origin, free)
                 S.lastFilteredPickup = now
                 S.lastPickup = now
                 table.remove(list, i)
-                return true
+                grabs += 1
+            else
+                i += 1
             end
+        else
+            table.remove(list, i)
         end
     end
 
+    if grabs > 0 then
+        return true
+    end
+
     -- Cache exhausted / stale
-    S._filterCandCache = nil
+    if #list == 0 then
+        S._filterCandCache = nil
+    end
     return false
 end
 
@@ -2823,9 +2887,12 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         end
     end
 
-    if S.autoPickupActive or S.pickupValueActive or S.pickupLuckActive then
+    local needPickup = S.autoPickupActive or S.pickupValueActive or S.pickupLuckActive
+        or (os.clock() < (S._ragdollPickupUntil or 0))
+    if needPickup then
         S._pickupAcc = (S._pickupAcc or 0) + deltaTime
-        if S._pickupAcc >= (PACE.pickup or 0.08) then
+        local tickRate = (os.clock() < (S._ragdollPickupUntil or 0)) and 0.05 or (PACE.pickup or 0.08)
+        if S._pickupAcc >= tickRate then
             S._pickupAcc = 0
             local ok, err = pcall(FM.pickupStep)
             if not ok then
@@ -4674,7 +4741,9 @@ do
         PickupBox:Toggle({
             Title = "Auto Pickup",
             Value = false,
-            Callback = setAutoPickup
+            Callback = function(value)
+                S.autoPickupActive = value == true
+            end
         })
 
         PickupBox:Toggle({
@@ -4720,6 +4789,19 @@ do
             end
         })
 
+        PickupBox:Dropdown({
+            Title = "Pickup Mode (Value/Luck)",
+            Values = { "Legit", "Burst" },
+            Value = "Legit",
+            Callback = function(option)
+                if type(option) == "table" then
+                    option = option[1] or option.Value or option.Name or "Legit"
+                end
+                option = tostring(option or "Legit")
+                S.pickupMode = (option == "Burst") and "Burst" or "Legit"
+            end
+        })
+
         PickupBox:Input({
             Title = "Min Pickup Value",
             Value = "",
@@ -4762,7 +4844,7 @@ do
 
         MoveBox:Toggle({
             Title = "Speed Boost",
-            Value = false,
+            Value = true,
             Callback = FM.setSpeedBoost
         })
 
@@ -8407,6 +8489,21 @@ function FM.setAntiRagdoll(value)
             return
         end
 
+        -- Open a short window to auto-grab crystals that dropped because of ragdoll
+        -- (integrated into anti-ragdoll, no separate GUI toggle)
+        S._ragdollPickupUntil = os.clock() + (PICK.ragdollWindow or 2.8)
+        -- Force a pickup tick soon
+        S.lastPickup = 0
+        S._filterCandCache = nil
+        task.defer(function()
+            pcall(function()
+                local root = FM.getRoot and FM.getRoot()
+                if root then
+                    FM.pickupStep()
+                end
+            end)
+        end)
+
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         -- Immediately nullify any damage that arrived with the ragdoll
         if humanoid then
@@ -8864,4 +8961,9 @@ end
 pcall(function()
     FM.setAntiRagdoll(true)
     S.antiRagdoll = true
+end)
+
+pcall(function()
+    FM.setSpeedBoost(true)
+    S.speedActive = true
 end)
