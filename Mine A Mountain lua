@@ -576,6 +576,165 @@ function FM.crystalLuck(inst)
     return FM.computeLuck(inst)
 end
 
+
+function FM.getOwnedPlotRegion()
+    local things = Workspace:FindFirstChild("Things")
+    local plots = things and things:FindFirstChild("Plots")
+    local slots = plots and plots:FindFirstChild("Slots")
+    if not slots then
+        return nil, nil
+    end
+    local plot = slots:FindFirstChild(LocalPlayer.Name)
+    if not plot then
+        for _, slot in ipairs(slots:GetChildren()) do
+            local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
+            if owner == LocalPlayer.Name or owner == LocalPlayer.UserId or tostring(owner) == tostring(LocalPlayer.UserId) then
+                plot = slot
+                break
+            end
+        end
+    end
+    if not plot then
+        return nil, nil
+    end
+    local region = plot:FindFirstChild("Region")
+    if region and region:IsA("BasePart") then
+        return plot, region
+    end
+    return plot, nil
+end
+
+function FM.crystalPlotPos(region, objectSize)
+    local cf = region.CFrame
+    local size = region.Size
+    local half = size * 0.5
+    local padX = math.max(half.X - 1.5, 1)
+    local padZ = math.max(half.Z - 1.5, 1)
+    local oh = (objectSize or Vector3.new(2, 2, 2)) * 0.5
+    local lx = (math.random() - 0.5) * 2 * padX
+    local lz = (math.random() - 0.5) * 2 * padZ
+    local ly = oh.Y + 0.05
+    return cf:PointToWorldSpace(Vector3.new(lx, ly - half.Y, lz))
+end
+
+function FM.isCrystalTool(tool)
+    if not tool or not tool:IsA("Tool") then
+        return false
+    end
+    if type(tool.Name) == "string" and tool.Name:find("Rune", 1, true) then
+        return false
+    end
+    return FM.getAttr(tool, "Tier") ~= nil
+end
+
+function FM.placeCrystalTool(tool, region)
+    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
+    if not remote or not tool or not region then
+        return false
+    end
+    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid and tool.Parent ~= LocalPlayer.Character then
+        pcall(function()
+            humanoid:EquipTool(tool)
+        end)
+        task.wait(0.18)
+    end
+    local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
+    held = held or tool
+    if not held or not held.Parent then
+        return false
+    end
+    local handle = held:FindFirstChild("Handle")
+    local objectSize = (handle and handle:IsA("BasePart") and handle.Size) or Vector3.new(2, 2, 2)
+    local pos = FM.crystalPlotPos(region, objectSize)
+    -- Cobalt: FireServer(name, Vector3, yaw, tool)
+    local ok = pcall(function()
+        remote:FireServer(held.Name, pos, 0, held)
+    end)
+    return ok == true
+end
+
+function FM.placeAllBackpackCrystals()
+    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
+    local plot, region = FM.getOwnedPlotRegion()
+    if not remote then
+        WindUI:Notify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
+        return
+    end
+    if not region then
+        WindUI:Notify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
+        return
+    end
+    if S._placingCrystals then
+        return
+    end
+    S._placingCrystals = true
+    task.spawn(function()
+        local tools = {}
+        local function scan(container)
+            if not container then return end
+            for _, child in ipairs(container:GetChildren()) do
+                if FM.isCrystalTool(child) then
+                    tools[#tools + 1] = child
+                end
+            end
+        end
+        scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+        scan(LocalPlayer.Character)
+        local placed = 0
+        for _, tool in ipairs(tools) do
+            if tool and tool.Parent and FM.placeCrystalTool(tool, region) then
+                placed += 1
+            end
+            task.wait(1.2)
+        end
+        S._placingCrystals = false
+        WindUI:Notify({
+            Title = "Plant Crystals",
+            Content = string.format("Placed %d crystal(s)", placed),
+            Duration = 3,
+            Icon = placed > 0 and "check" or "alert-circle",
+        })
+    end)
+end
+
+function FM.plantHeldCrystal()
+    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
+    local plot, region = FM.getOwnedPlotRegion()
+    if not remote then
+        WindUI:Notify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
+        return
+    end
+    if not region then
+        WindUI:Notify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
+        return
+    end
+    local held = nil
+    local char = LocalPlayer.Character
+    if char then
+        for _, child in ipairs(char:GetChildren()) do
+            if FM.isCrystalTool(child) then
+                held = child
+                break
+            end
+        end
+    end
+    if not held then
+        WindUI:Notify({ Title = "Plant", Content = "Hold a crystal first", Duration = 2, Icon = "alert-circle" })
+        return
+    end
+    task.spawn(function()
+        local ok = FM.placeCrystalTool(held, region)
+        WindUI:Notify({
+            Title = "Plant Crystal",
+            Content = ok and ("Sent place: " .. held.Name) or "Failed to place",
+            Duration = 2,
+            Icon = ok and "check" or "alert-circle",
+        })
+    end)
+end
+
+
 function FM.meetsFilter(inst, value)
     if S.valueFilter then
         if (value or FM.crystalValue(inst)) < S.minValue then
@@ -6693,16 +6852,19 @@ do
                 statusText = "Terrain loaded (no character scan)"
             end
 
-            -- Long-range Auto Plant Luck (no teleport)
+            -- Long-range Auto Plant Luck via PlotPlaceRequest
             if autoPlantLuck and now - plantClock >= 3.5 then
                 plantClock = now
                 local tools = {}
                 local function scanTools(container)
                     if not container then return end
                     for _, child in ipairs(container:GetChildren()) do
-                        if child:IsA("Tool") and FM.getAttr(child, "Tier") ~= nil then
-                            local luck = FM.crystalLuck(child) or 0
-                            if luck * 100 >= 5 then
+                        if FM.isCrystalTool(child) then
+                            local luck = 0
+                            pcall(function()
+                                luck = FM.crystalLuck(child) or 0
+                            end)
+                            if luck * 100 >= (minLuckPoints or 5) then
                                 tools[#tools + 1] = child
                             end
                         end
@@ -6710,48 +6872,14 @@ do
                 end
                 scanTools(LocalPlayer:FindFirstChildOfClass("Backpack"))
                 scanTools(LocalPlayer.Character)
-                if #tools >= 3 and PlotPlaceRequest then
-                    local plot = nil
-                    local things = Workspace:FindFirstChild("Things")
-                    local plots = things and things:FindFirstChild("Plots")
-                    local slots = plots and plots:FindFirstChild("Slots")
-                    if slots then
-                        plot = slots:FindFirstChild(LocalPlayer.Name)
-                        if not plot then
-                            for _, slot in ipairs(slots:GetChildren()) do
-                                local owner = slot:GetAttribute("Owner") or slot:GetAttribute("OwnerName")
-                                if owner == LocalPlayer.Name or owner == LocalPlayer.UserId then
-                                    plot = slot
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    if plot then
-                        local region = plot:FindFirstChild("Region")
-                        local basePos = nil
-                        if region and region:IsA("BasePart") then
-                            basePos = region.Position
-                        else
-                            local ok, pivot = pcall(function() return plot:GetPivot().Position end)
-                            if ok and pivot then basePos = pivot end
-                        end
-                        if basePos then
-                            for i, tool in ipairs(tools) do
-                                if i > 12 then break end
-                                local col = (i - 1) % 6
-                                local row = math.floor((i - 1) / 6)
-                                local plantSpot = basePos + Vector3.new(col * 4 - 10, 0, row * 4 - 10)
-                                pcall(function()
-                                    PlotPlaceRequest:FireServer(tool.Name, plantSpot, 0, tool)
-                                end)
-                                task.wait(0.07)
-                            end
-                            statusText = "Planted luck (long range)"
-                        end
+                local _, region = FM.getOwnedPlotRegion()
+                if region and #tools > 0 then
+                    if FM.placeCrystalTool(tools[1], region) then
+                        statusText = "Planted luck (long range)"
                     end
                 end
             end
+
 
             if sellUntil > 0 then
                 if now < sellUntil then
@@ -7032,6 +7160,16 @@ do
                 autoPlantLuck = value
                 S.autoPlantLuck = value
             end
+        })
+
+        MoneyBox:Button({
+            Title = "Place All Crystals On Plot",
+            Callback = FM.placeAllBackpackCrystals,
+        })
+
+        MoneyBox:Button({
+            Title = "Plant Held Crystal",
+            Callback = FM.plantHeldCrystal,
         })
 
         local StatusLabel = MoneyBox:Paragraph({
