@@ -60,7 +60,7 @@ do
     end)
 end
 
-local function resolveGuiRoot()
+function FM.resolveGuiRoot()
     local ok, hidden = pcall(function()
         return gethui()
     end)
@@ -76,7 +76,7 @@ local function resolveGuiRoot()
     return LocalPlayer:WaitForChild("PlayerGui", 10) or CoreGui
 end
 
-local GuiRoot = resolveGuiRoot()
+local GuiRoot = FM.resolveGuiRoot()
 
 for _, container in ipairs({ GuiRoot, CoreGui }) do
     for _, name in ipairs({ "FayyMengESPGui", "FayyMengCrystalEsp" }) do
@@ -89,7 +89,7 @@ for _, container in ipairs({ GuiRoot, CoreGui }) do
     end
 end
 
-local function findRemote(name)
+function FM.findRemote(name)
     local folder = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 10)
     if not folder then
         return nil
@@ -97,14 +97,16 @@ local function findRemote(name)
     return folder:FindFirstChild(name) or folder:WaitForChild(name, 5)
 end
 
-local SellRequest = findRemote("SellRequest")
-local GoHome = findRemote("GoHome")
-local HoldComplete = findRemote("CrystalHoldComplete")
-local ToggleFavorite = findRemote("ToggleFavorite")
-local BombShopQuery = findRemote("BombShopQuery")
-local BombBuyRequest = findRemote("BombBuyRequest")
-local BombShopRestocked = findRemote("BombShopRestocked")
-local PlotPlaceRequest = findRemote("PlotPlaceRequest")
+local SellRequest = FM.findRemote("SellRequest")
+local GoHome = FM.findRemote("GoHome")
+local HoldComplete = FM.findRemote("CrystalHoldComplete")
+local ToggleFavorite = FM.findRemote("ToggleFavorite")
+local BombShopQuery = FM.findRemote("BombShopQuery")
+local BombBuyRequest = FM.findRemote("BombBuyRequest")
+local BombShopRestocked = FM.findRemote("BombShopRestocked")
+local PlotPlaceRequest = FM.findRemote("PlotPlaceRequest")
+
+local FM = {}
 
 local ESP = {
     font = Enum.Font.GothamBold,
@@ -314,7 +316,7 @@ local S = {
     BackpackLabel       = nil,
 }
 
-local function reportError(context, err)
+function FM.reportError(context, err)
     local now = os.clock()
     if now - S.lastReport < 5 then
         return
@@ -323,7 +325,7 @@ local function reportError(context, err)
     warn(string.format("[FayyMeng] %s: %s", context, tostring(err)))
 end
 
-local function formatShort(n, prefix)
+function FM.formatShort(n, prefix)
     n = tonumber(n) or 0
     prefix = prefix or ""
 
@@ -343,15 +345,15 @@ local function formatShort(n, prefix)
     return string.format("%s%s%.2f%s", sign, prefix, n, SUFFIXES[index + 1])
 end
 
-local function formatWeight(kg)
+function FM.formatWeight(kg)
     kg = tonumber(kg) or 0
     if kg >= 1000 then
-        return formatShort(kg) .. "kg"
+        return FM.formatShort(kg) .. "kg"
     end
     return string.format("%.1fkg", kg)
 end
 
-local function formatDistance(studs)
+function FM.formatDistance(studs)
     studs = tonumber(studs) or 0
     if studs >= 1000 then
         return string.format("%.1fkm", studs / 1000)
@@ -359,7 +361,7 @@ local function formatDistance(studs)
     return string.format("%dm", math.floor(studs + 0.5))
 end
 
-local function formatLuck(score)
+function FM.formatLuck(score)
     local pct = (tonumber(score) or 0) * 100
 
     if pct <= 0 then
@@ -374,7 +376,7 @@ local function formatLuck(score)
     return string.format("+%.0f%%", pct)
 end
 
-local function parseValue(text)
+function FM.parseValue(text)
     if type(text) ~= "string" then
         return nil
     end
@@ -406,7 +408,7 @@ local function parseValue(text)
     return base * multiplier
 end
 
-local function bindCharacter(character)
+function FM.bindCharacter(character)
     if not character then
         S.rootPart = nil
         return
@@ -414,7 +416,7 @@ local function bindCharacter(character)
     S.rootPart = character:FindFirstChild("HumanoidRootPart")
 end
 
-bindCharacter(LocalPlayer.Character)
+FM.bindCharacter(LocalPlayer.Character)
 
 local characterConn = LocalPlayer.CharacterAdded:Connect(function(character)
     S.rootPart = nil
@@ -429,21 +431,21 @@ local characterConn = LocalPlayer.CharacterAdded:Connect(function(character)
         end
     end)
 
-    bindCharacter(character)
+    FM.bindCharacter(character)
     if S.rootPart then
         waiter:Disconnect()
     end
 end)
 
-local function getRoot()
+function FM.getRoot()
     if S.rootPart and S.rootPart.Parent then
         return S.rootPart
     end
-    bindCharacter(LocalPlayer.Character)
+    FM.bindCharacter(LocalPlayer.Character)
     return S.rootPart
 end
 
-local function getAttr(inst, name)
+function FM.getAttr(inst, name)
     local ok, value = pcall(inst.GetAttribute, inst, name)
     if ok then
         return value
@@ -451,96 +453,96 @@ local function getAttr(inst, name)
     return nil
 end
 
-local function crystalValue(inst)
-    return tonumber(getAttr(inst, "Value")) or 0
+function FM.crystalValue(inst)
+    return tonumber(FM.getAttr(inst, "Value")) or 0
 end
 
-local function crystalWeight(inst)
-    return tonumber(getAttr(inst, "WeightKg")) or 0
+function FM.crystalWeight(inst)
+    return tonumber(FM.getAttr(inst, "WeightKg")) or 0
 end
 
-local function crystalTier(inst)
-    return tonumber(getAttr(inst, "Tier")) or 0
+function FM.crystalTier(inst)
+    return tonumber(FM.getAttr(inst, "Tier")) or 0
 end
 
-local function crystalRarity(inst)
-    local name = getAttr(inst, "TierName")
+function FM.crystalRarity(inst)
+    local name = FM.getAttr(inst, "TierName")
     if type(name) == "string" and name ~= "" then
         return name
     end
-    return TIER_NAMES[crystalTier(inst)] or "Unknown"
+    return TIER_NAMES[FM.crystalTier(inst)] or "Unknown"
 end
 
-local function crystalName(inst)
-    local name = getAttr(inst, "CrystalName")
+function FM.crystalName(inst)
+    local name = FM.getAttr(inst, "CrystalName")
     if type(name) == "string" and name ~= "" then
         return name
     end
     return inst.Name
 end
 
-local function crystalColor(inst)
-    local r = tonumber(getAttr(inst, "TierColorR"))
-    local g = tonumber(getAttr(inst, "TierColorG"))
-    local b = tonumber(getAttr(inst, "TierColorB"))
+function FM.crystalColor(inst)
+    local r = tonumber(FM.getAttr(inst, "TierColorR"))
+    local g = tonumber(FM.getAttr(inst, "TierColorG"))
+    local b = tonumber(FM.getAttr(inst, "TierColorB"))
     if r and g and b then
         return Color3.fromRGB(r, g, b)
     end
     return COLORS.default
 end
 
-local function mutationLuck(name)
+function FM.mutationLuck(name)
     if type(name) ~= "string" or name == "" then
         return 1
     end
     return MUTATION_LUCK[name] or 1
 end
 
-local function combinedLuckMult(inst)
-    local mutation = getAttr(inst, "Mutation")
-    local roll = tonumber(getAttr(inst, "MutationLuckRoll"))
-    local multiplier = (roll and roll > 0) and roll or mutationLuck(mutation)
+function FM.combinedLuckMult(inst)
+    local mutation = FM.getAttr(inst, "Mutation")
+    local roll = tonumber(FM.getAttr(inst, "MutationLuckRoll"))
+    local multiplier = (roll and roll > 0) and roll or FM.mutationLuck(mutation)
 
-    local extra = getAttr(inst, "ExtraMutations")
+    local extra = FM.getAttr(inst, "ExtraMutations")
     if type(extra) == "string" and extra ~= "" then
         for name in string.gmatch(extra, "[^,]+") do
             if name ~= "" then
-                multiplier *= mutationLuck(name)
+                multiplier *= FM.mutationLuck(name)
             end
         end
     end
 
-    if getAttr(inst, "IsBloodCrystal") == true then
+    if FM.getAttr(inst, "IsBloodCrystal") == true then
         multiplier *= LUCK.blood
     end
 
-    if getAttr(inst, "AdminMutation") == "Radioactive" and mutation ~= "Radioactive" then
+    if FM.getAttr(inst, "AdminMutation") == "Radioactive" and mutation ~= "Radioactive" then
         local hasRadioactive = type(extra) == "string" and extra:find("Radioactive", 1, true) ~= nil
         if not hasRadioactive then
-            multiplier *= mutationLuck("Radioactive")
+            multiplier *= FM.mutationLuck("Radioactive")
         end
     end
 
     return multiplier
 end
 
-local function computeLuck(inst)
-    local tier = crystalTier(inst)
+function FM.computeLuck(inst)
+    local tier = FM.crystalTier(inst)
     if tier <= 0 then
         return 0
     end
 
-    local weight = math.max(0, crystalWeight(inst))
+    local weight = math.max(0, FM.crystalWeight(inst))
     local base = (LUCK.rarity[tier] or LUCK.rarity[1]) * math.min(weight, LUCK.cap) ^ LUCK.exponent * LUCK.base
 
-    if getAttr(inst, "BombCrystal") == true then
+    if FM.getAttr(inst, "BombCrystal") == true then
         base *= LUCK.bomb
     end
 
-    return base * combinedLuckMult(inst)
+    return base * FM.combinedLuckMult(inst)
 end
 
-local function luckLabel(inst)
+function FM.luckLabel(inst)
     local hover = inst:FindFirstChild("CrystalHover")
     if not hover then
         return nil
@@ -554,37 +556,37 @@ local function luckLabel(inst)
     return label
 end
 
-local function luckLabelText(inst)
-    local label = luckLabel(inst)
+function FM.luckLabelText(inst)
+    local label = FM.luckLabel(inst)
     if not label then
         return nil
     end
     return label.Text
 end
 
-local function crystalLuck(inst)
-    local text = luckLabelText(inst)
+function FM.crystalLuck(inst)
+    local text = FM.luckLabelText(inst)
     if type(text) == "string" then
         local pct = tonumber(text:match("([%d%.]+)%s*%%"))
         if pct and pct > 0 then
             return pct / 100
         end
     end
-    return computeLuck(inst)
+    return FM.computeLuck(inst)
 end
 
 
 
 
-local function FayyNotify(opts)
+function FM.FayyNotify(opts)
     pcall(function()
         if WindUI and WindUI.Notify then
-            FayyNotify(opts)
+            FM.FayyNotify(opts)
         end
     end)
 end
 
-local function getOwnedPlotForPlace()
+function FM.getOwnedPlotForPlace()
     local things = Workspace:FindFirstChild("Things")
     local plots = things and things:FindFirstChild("Plots")
     local slots = plots and plots:FindFirstChild("Slots")
@@ -611,7 +613,7 @@ local function getOwnedPlotForPlace()
     return plot, region
 end
 
-local function crystalPlaceWorldPos(region, objectSize)
+function FM.crystalPlaceWorldPos(region, objectSize)
     local cf = region.CFrame
     local size = region.Size
     local half = size * 0.5
@@ -625,25 +627,25 @@ local function crystalPlaceWorldPos(region, objectSize)
     return cf:PointToWorldSpace(bottomLocal)
 end
 
-local function toolPlaceSize(tool)
+function FM.toolPlaceSize(tool)
     local handle = tool and tool:FindFirstChild("Handle")
     if handle and handle:IsA("BasePart") then
         return handle.Size
     end
-    local fx = tonumber(tool and getAttr(tool, "FinalSizeX"))
-    local fy = tonumber(tool and getAttr(tool, "FinalSizeY"))
-    local fz = tonumber(tool and getAttr(tool, "FinalSizeZ"))
+    local fx = tonumber(tool and FM.getAttr(tool, "FinalSizeX"))
+    local fy = tonumber(tool and FM.getAttr(tool, "FinalSizeY"))
+    local fz = tonumber(tool and FM.getAttr(tool, "FinalSizeZ"))
     if fx and fy and fz then
         return Vector3.new(fx, fy, fz)
     end
     return Vector3.new(2, 2, 2)
 end
 
-local function isPlaceableCrystalTool(tool)
+function FM.isPlaceableCrystalTool(tool)
     if not tool or not tool:IsA("Tool") then
         return false
     end
-    if getAttr(tool, "Tier") == nil then
+    if FM.getAttr(tool, "Tier") == nil then
         return false
     end
     -- runes often have Rune in name / no WeightKg sometimes - still allow Tier tools
@@ -653,7 +655,7 @@ local function isPlaceableCrystalTool(tool)
     return true
 end
 
-local function placeCrystalToolOnPlot(tool, remote, region)
+function FM.placeCrystalToolOnPlot(tool, remote, region)
     if not tool or not tool.Parent or not remote or not region then
         return false
     end
@@ -669,7 +671,7 @@ local function placeCrystalToolOnPlot(tool, remote, region)
     if not held or not held.Parent then
         return false
     end
-    local pos = crystalPlaceWorldPos(region, toolPlaceSize(held))
+    local pos = FM.crystalPlaceWorldPos(region, FM.toolPlaceSize(held))
     local yaw = math.random() * math.pi * 2
     local ok = pcall(function()
         remote:FireServer(held.Name, pos, yaw, held)
@@ -677,15 +679,15 @@ local function placeCrystalToolOnPlot(tool, remote, region)
     return ok == true
 end
 
-local function placeAllBackpackCrystals()
-    local remote = PlotPlaceRequest or findRemote("PlotPlaceRequest")
+function FM.placeAllBackpackCrystals()
+    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
     if not remote then
-        FayyNotify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
+        FM.FayyNotify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
         return
     end
-    local plot, region = getOwnedPlotForPlace()
+    local plot, region = FM.getOwnedPlotForPlace()
     if not region then
-        FayyNotify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
+        FM.FayyNotify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
         return
     end
     if S._placingCrystals then
@@ -697,7 +699,7 @@ local function placeAllBackpackCrystals()
         local function scan(container)
             if not container then return end
             for _, child in ipairs(container:GetChildren()) do
-                if isPlaceableCrystalTool(child) then
+                if FM.isPlaceableCrystalTool(child) then
                     tools[#tools + 1] = child
                 end
             end
@@ -709,13 +711,13 @@ local function placeAllBackpackCrystals()
             if S._stopCrystalOps then
                 break
             end
-            if tool and tool.Parent and placeCrystalToolOnPlot(tool, remote, region) then
+            if tool and tool.Parent and FM.placeCrystalToolOnPlot(tool, remote, region) then
                 placed += 1
             end
             task.wait(1.2)
         end
         S._placingCrystals = false
-        FayyNotify({
+        FM.FayyNotify({
             Title = "Plant Crystals",
             Content = string.format("Placed %d crystal(s) on plot", placed),
             Duration = 3,
@@ -724,34 +726,34 @@ local function placeAllBackpackCrystals()
     end)
 end
 
-local function plantHeldCrystal()
-    local remote = PlotPlaceRequest or findRemote("PlotPlaceRequest")
+function FM.plantHeldCrystal()
+    local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
     if not remote then
-        FayyNotify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
+        FM.FayyNotify({ Title = "Plant", Content = "PlotPlaceRequest missing", Duration = 3, Icon = "alert-circle" })
         return
     end
-    local plot, region = getOwnedPlotForPlace()
+    local plot, region = FM.getOwnedPlotForPlace()
     if not region then
-        FayyNotify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
+        FM.FayyNotify({ Title = "Plant", Content = "Own plot Region not found", Duration = 3, Icon = "alert-circle" })
         return
     end
     local char = LocalPlayer.Character
     local held = nil
     if char then
         for _, child in ipairs(char:GetChildren()) do
-            if isPlaceableCrystalTool(child) then
+            if FM.isPlaceableCrystalTool(child) then
                 held = child
                 break
             end
         end
     end
     if not held then
-        FayyNotify({ Title = "Plant", Content = "Hold a crystal first", Duration = 2, Icon = "alert-circle" })
+        FM.FayyNotify({ Title = "Plant", Content = "Hold a crystal first", Duration = 2, Icon = "alert-circle" })
         return
     end
     task.spawn(function()
-        local ok = placeCrystalToolOnPlot(held, remote, region)
-        FayyNotify({
+        local ok = FM.placeCrystalToolOnPlot(held, remote, region)
+        FM.FayyNotify({
             Title = "Plant Crystal",
             Content = ok and ("Planted " .. held.Name) or "Failed to plant",
             Duration = 2,
@@ -760,9 +762,9 @@ local function plantHeldCrystal()
     end)
 end
 
-local function meetsFilter(inst, value)
+function FM.meetsFilter(inst, value)
     if S.valueFilter then
-        if (value or crystalValue(inst)) < S.minValue then
+        if (value or FM.crystalValue(inst)) < S.minValue then
             return false
         end
     end
@@ -770,7 +772,7 @@ local function meetsFilter(inst, value)
     return true
 end
 
-local function ownsGamepass(name)
+function FM.ownsGamepass(name)
     local folder = LocalPlayer:FindFirstChild("GamepassesOwned")
     if not folder then
         return false
@@ -780,7 +782,7 @@ local function ownsGamepass(name)
     return flag ~= nil and flag:IsA("BoolValue") and flag.Value == true
 end
 
-local function realStat(name)
+function FM.realStat(name)
     local data = LocalPlayer:FindFirstChild("PlayerData")
     local stats = data and data:FindFirstChild("RealStats")
     local entry = stats and stats:FindFirstChild(name)
@@ -790,7 +792,7 @@ local function realStat(name)
     return tonumber(entry.Value)
 end
 
-local function hasActiveRune(keyword)
+function FM.hasActiveRune(keyword)
     local data = LocalPlayer:FindFirstChild("PlayerData")
     local plot = data and data:FindFirstChild("PlotData")
     local runes = plot and plot:FindFirstChild("Runes")
@@ -810,26 +812,26 @@ local function hasActiveRune(keyword)
     return false
 end
 
-local function backpackCapacity()
+function FM.backpackCapacity()
     if LocalPlayer:GetAttribute("InfBackpack") == true then
         return math.huge
     end
 
-    local base = realStat("CarryWeight") or 10
-    if ownsGamepass("CarryKgPlus4") then
+    local base = FM.realStat("CarryWeight") or 10
+    if FM.ownsGamepass("CarryKgPlus4") then
         base *= 4
     end
 
-    local total = base + (realStat("CarryWeightBonus") or 0)
+    local total = base + (FM.realStat("CarryWeightBonus") or 0)
 
-    if hasActiveRune("Weight") then
+    if FM.hasActiveRune("Weight") then
         return total * 2
     end
 
     return total
 end
 
-local function backpackWeight()
+function FM.backpackWeight()
     local total = 0
 
     local function scan(container)
@@ -837,8 +839,8 @@ local function backpackWeight()
             return
         end
         for _, child in ipairs(container:GetChildren()) do
-            if child:IsA("Tool") and getAttr(child, "Tier") ~= nil then
-                local kg = tonumber(getAttr(child, "WeightKg"))
+            if child:IsA("Tool") and FM.getAttr(child, "Tier") ~= nil then
+                local kg = tonumber(FM.getAttr(child, "WeightKg"))
                 if kg then
                     total += kg
                 end
@@ -852,15 +854,15 @@ local function backpackWeight()
     return total
 end
 
-local function backpackFree()
-    local capacity = backpackCapacity()
+function FM.backpackFree()
+    local capacity = FM.backpackCapacity()
     if capacity == math.huge then
         return math.huge
     end
-    return capacity - backpackWeight()
+    return capacity - FM.backpackWeight()
 end
 
-local function looksLikeCrystal(inst)
+function FM.looksLikeCrystal(inst)
     if not inst:IsA("BasePart") then
         return false
     end
@@ -869,7 +871,7 @@ end
 
 local crystalFlags = setmetatable({}, { __mode = "k" })
 
-local function isCrystal(inst)
+function FM.isCrystal(inst)
     local cached = crystalFlags[inst]
     if cached ~= nil then
         return cached
@@ -877,8 +879,8 @@ local function isCrystal(inst)
 
     local result = false
 
-    if inst:IsA("BasePart") and getAttr(inst, "Value") ~= nil then
-        result = getAttr(inst, "CrystalName") ~= nil or inst.Name:find("Crystal", 1, true) ~= nil
+    if inst:IsA("BasePart") and FM.getAttr(inst, "Value") ~= nil then
+        result = FM.getAttr(inst, "CrystalName") ~= nil or inst.Name:find("Crystal", 1, true) ~= nil
     end
 
     crystalFlags[inst] = result
@@ -889,7 +891,7 @@ end
 local containerList = {}
 local containerClock = 0
 
-local function rebuildContainers()
+function FM.rebuildContainers()
     table.clear(containerList)
 
     local seen = {}
@@ -916,7 +918,7 @@ local function rebuildContainers()
     end
 end
 
-local function eachContainer(fn)
+function FM.eachContainer(fn)
     local now = os.clock()
     local stale = #containerList == 0 or now - containerClock >= 1.0
 
@@ -931,7 +933,7 @@ local function eachContainer(fn)
 
     if stale then
         containerClock = now
-        rebuildContainers()
+        FM.rebuildContainers()
     end
 
     for _, container in ipairs(containerList) do
@@ -939,7 +941,7 @@ local function eachContainer(fn)
     end
 end
 
-local function newLabel(name, parent, order, total, color, rich, maxText)
+function FM.newLabel(name, parent, order, total, color, rich, maxText)
     local label = Instance.new("TextLabel")
     label.Name = name
     label.BackgroundTransparency = 1
@@ -964,38 +966,38 @@ local function newLabel(name, parent, order, total, color, rich, maxText)
     return label, constraint
 end
 
-local function crystalGuiSize()
+function FM.crystalGuiSize()
     return UDim2.fromOffset(ESP.width * S.espScale, ESP.height * S.espScale)
 end
 
-local function crystalTextSize()
+function FM.crystalTextSize()
     return math.max(6, math.floor(ESP.text * S.espScale + 0.5))
 end
 
-local function playerGuiSize()
+function FM.playerGuiSize()
     return UDim2.fromOffset(PLAYER.width * S.playerScale, PLAYER.height * S.playerScale)
 end
 
-local function playerTextSize()
+function FM.playerTextSize()
     return math.max(6, math.floor(PLAYER.text * S.playerScale + 0.5))
 end
 
-local function createEntry(inst)
+function FM.createEntry(inst)
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "FayyMengEsp"
     billboard.Adornee = inst
     billboard.AlwaysOnTop = true
     billboard.ResetOnSpawn = false
     billboard.LightInfluence = 0
-    billboard.Size = crystalGuiSize()
+    billboard.Size = FM.crystalGuiSize()
     billboard.StudsOffsetWorldSpace = ESP.offset
     billboard.MaxDistance = math.huge
     billboard.Parent = EspHolder
 
-    local textSize = crystalTextSize()
-    local rarity, rarityConstraint = newLabel("Rarity", billboard, 0, 3, COLORS.default, false, textSize)
-    local info, infoConstraint = newLabel("Info", billboard, 1, 3, COLORS.money, false, textSize)
-    local extra, extraConstraint = newLabel("Extra", billboard, 2, 3, COLORS.extra, true, textSize)
+    local textSize = FM.crystalTextSize()
+    local rarity, rarityConstraint = FM.newLabel("Rarity", billboard, 0, 3, COLORS.default, false, textSize)
+    local info, infoConstraint = FM.newLabel("Info", billboard, 1, 3, COLORS.money, false, textSize)
+    local extra, extraConstraint = FM.newLabel("Extra", billboard, 2, 3, COLORS.extra, true, textSize)
 
     return {
         gui = billboard,
@@ -1009,7 +1011,7 @@ local function createEntry(inst)
     }
 end
 
-local function destroyEntry(inst, entry)
+function FM.destroyEntry(inst, entry)
     entry = entry or S.espCache[inst]
     if not entry then
         return
@@ -1024,9 +1026,9 @@ local function destroyEntry(inst, entry)
     S.statsDirty = true
 end
 
-local function applyEspScale()
-    local size = crystalGuiSize()
-    local textSize = crystalTextSize()
+function FM.applyEspScale()
+    local size = FM.crystalGuiSize()
+    local textSize = FM.crystalTextSize()
 
     for _, entry in pairs(S.espCache) do
         if entry.gui then
@@ -1038,9 +1040,9 @@ local function applyEspScale()
     end
 end
 
-local function applyPlayerScale()
-    local size = playerGuiSize()
-    local textSize = playerTextSize()
+function FM.applyPlayerScale()
+    local size = FM.playerGuiSize()
+    local textSize = FM.playerTextSize()
 
     for _, entry in pairs(S.playerCache) do
         if entry.gui then
@@ -1052,7 +1054,7 @@ local function applyPlayerScale()
     end
 end
 
-local function applyExtra(entry, distanceText)
+function FM.applyExtra(entry, distanceText)
     entry.distanceText = distanceText
     entry.extra.Text = string.format(
         '<font color="#%s">%s</font>  \u{2022}  <font color="#%s">%s</font>',
@@ -1063,10 +1065,10 @@ local function applyExtra(entry, distanceText)
     )
 end
 
-local function buildTitle(inst)
-    local rarity = crystalRarity(inst)
-    local name = crystalName(inst)
-    local mutation = getAttr(inst, "Mutation")
+function FM.buildTitle(inst)
+    local rarity = FM.crystalRarity(inst)
+    local name = FM.crystalName(inst)
+    local mutation = FM.getAttr(inst, "Mutation")
 
     if type(mutation) == "string" and mutation ~= "" then
         return string.format("[%s] %s (%s)", rarity, name, mutation)
@@ -1074,9 +1076,9 @@ local function buildTitle(inst)
     return string.format("[%s] %s", rarity, name)
 end
 
-local function applyDetails(inst, entry, origin)
-    local money = formatShort(crystalValue(inst), "$")
-    local weight = formatWeight(crystalWeight(inst))
+function FM.applyDetails(inst, entry, origin)
+    local money = FM.formatShort(FM.crystalValue(inst), "$")
+    local weight = FM.formatWeight(FM.crystalWeight(inst))
 
     entry.rarity.Text = money
     entry.rarity.TextColor3 = COLORS.money
@@ -1085,30 +1087,30 @@ local function applyDetails(inst, entry, origin)
     entry.extra.Text = ""
     entry.luckText = ""
     if origin then
-        entry.distanceText = formatDistance((inst.Position - origin).Magnitude)
+        entry.distanceText = FM.formatDistance((inst.Position - origin).Magnitude)
     else
         entry.distanceText = "--"
     end
 end
 
-local function crystalSignature(inst)
+function FM.crystalSignature(inst)
     return table.concat({
-        tostring(getAttr(inst, "Tier")),
-        tostring(getAttr(inst, "TierName")),
-        tostring(getAttr(inst, "CrystalName")),
-        tostring(getAttr(inst, "Value")),
-        tostring(getAttr(inst, "WeightKg")),
-        tostring(getAttr(inst, "Mutation")),
-        tostring(getAttr(inst, "ExtraMutations")),
-        tostring(luckLabelText(inst)),
+        tostring(FM.getAttr(inst, "Tier")),
+        tostring(FM.getAttr(inst, "TierName")),
+        tostring(FM.getAttr(inst, "CrystalName")),
+        tostring(FM.getAttr(inst, "Value")),
+        tostring(FM.getAttr(inst, "WeightKg")),
+        tostring(FM.getAttr(inst, "Mutation")),
+        tostring(FM.getAttr(inst, "ExtraMutations")),
+        tostring(FM.luckLabelText(inst)),
     }, "|")
 end
 
-local function markDirty(inst)
+function FM.markDirty(inst)
     S.dirty[inst] = true
 end
 
-local function untrackCrystal(inst)
+function FM.untrackCrystal(inst)
     local conns = S.registry[inst]
     if not conns then
         return
@@ -1124,10 +1126,10 @@ local function untrackCrystal(inst)
     S.candidates[inst] = nil
     S.statsDirty = true
 
-    destroyEntry(inst)
+    FM.destroyEntry(inst)
 end
 
-local function trackCrystal(inst)
+function FM.trackCrystal(inst)
     if S.registry[inst] then
         return
     end
@@ -1139,38 +1141,38 @@ local function trackCrystal(inst)
 
     local ok = pcall(function()
         conns[#conns + 1] = inst.Destroying:Connect(function()
-            untrackCrystal(inst)
+            FM.untrackCrystal(inst)
         end)
 
         conns[#conns + 1] = inst.AncestryChanged:Connect(function()
             if not inst:IsDescendantOf(Workspace) then
-                untrackCrystal(inst)
+                FM.untrackCrystal(inst)
             end
         end)
 
         for _, name in ipairs(WATCHED_ATTRIBUTES) do
             conns[#conns + 1] = inst:GetAttributeChangedSignal(name):Connect(function()
-                markDirty(inst)
+                FM.markDirty(inst)
             end)
         end
 
-        local label = luckLabel(inst)
+        local label = FM.luckLabel(inst)
         if label then
             conns[#conns + 1] = label:GetPropertyChangedSignal("Text"):Connect(function()
-                markDirty(inst)
+                FM.markDirty(inst)
             end)
         end
     end)
 
     if not ok then
-        untrackCrystal(inst)
+        FM.untrackCrystal(inst)
         return
     end
 
-    markDirty(inst)
+    FM.markDirty(inst)
 end
 
-local function syncCrystal(inst)
+function FM.syncCrystal(inst)
     S.dirty[inst] = nil
 
     if not S.registry[inst] then
@@ -1178,28 +1180,28 @@ local function syncCrystal(inst)
     end
 
     if not inst.Parent then
-        untrackCrystal(inst)
+        FM.untrackCrystal(inst)
         return
     end
 
     local entry = S.espCache[inst]
-    local hidden = not S.espActive or getAttr(inst, "Collected") == true
+    local hidden = not S.espActive or FM.getAttr(inst, "Collected") == true
 
     if not hidden then
-        hidden = not meetsFilter(inst)
+        hidden = not FM.meetsFilter(inst)
     end
 
     if hidden then
         if entry then
-            destroyEntry(inst, entry)
+            FM.destroyEntry(inst, entry)
         end
         return
     end
 
     if not entry then
-        local built, result = pcall(createEntry, inst)
+        local built, result = pcall(FM.createEntry, inst)
         if not built then
-            reportError("billboard", result)
+            FM.reportError("billboard", result)
             return
         end
 
@@ -1209,32 +1211,32 @@ local function syncCrystal(inst)
         S.statsDirty = true
     end
 
-    local signature = crystalSignature(inst)
+    local signature = FM.crystalSignature(inst)
     if signature == entry.signature then
         return
     end
 
-    local root = getRoot()
-    local ok, err = pcall(applyDetails, inst, entry, root and root.Position or nil)
+    local root = FM.getRoot()
+    local ok, err = pcall(FM.applyDetails, inst, entry, root and root.Position or nil)
     if ok then
         entry.signature = signature
     else
-        reportError("details", err)
+        FM.reportError("details", err)
     end
 end
 
 local sweepSeen = {}
 
-local function sweep()
+function FM.sweep()
     local seen = sweepSeen
     table.clear(seen)
 
-    eachContainer(function(container)
+    FM.eachContainer(function(container)
         for _, child in ipairs(container:GetChildren()) do
-            if not seen[child] and isCrystal(child) then
+            if not seen[child] and FM.isCrystal(child) then
                 seen[child] = true
                 if not S.registry[child] then
-                    trackCrystal(child)
+                    FM.trackCrystal(child)
                 end
             end
         end
@@ -1250,15 +1252,15 @@ local function sweep()
 
     if stale then
         for _, inst in ipairs(stale) do
-            untrackCrystal(inst)
+            FM.untrackCrystal(inst)
         end
     end
 end
 
 local lastDistanceOrigin
 
-local function updateDistances()
-    local root = getRoot()
+function FM.updateDistances()
+    local root = FM.getRoot()
     if not root then
         return
     end
@@ -1273,9 +1275,9 @@ local function updateDistances()
 
     for inst, entry in pairs(S.espCache) do
         if inst.Parent then
-            local text = formatDistance((inst.Position - origin).Magnitude)
+            local text = FM.formatDistance((inst.Position - origin).Magnitude)
             if text ~= entry.distanceText then
-                applyExtra(entry, text)
+                FM.applyExtra(entry, text)
             end
         end
     end
@@ -1283,16 +1285,16 @@ end
 
 local clearLuckEsp
 
-local function clearEsp()
+function FM.clearEsp()
     for inst, entry in pairs(S.espCache) do
-        destroyEntry(inst, entry)
+        FM.destroyEntry(inst, entry)
     end
     S.espCache = {}
     S.espCount = 0
     S.statsDirty = true
 end
 
-local function clearRegistry()
+function FM.clearRegistry()
     local all
     for inst in pairs(S.registry) do
         all = all or {}
@@ -1301,11 +1303,11 @@ local function clearRegistry()
 
     if all then
         for _, inst in ipairs(all) do
-            untrackCrystal(inst)
+            FM.untrackCrystal(inst)
         end
     end
 
-    clearEsp()
+    FM.clearEsp()
     clearLuckEsp()
 
     S.registry = {}
@@ -1315,32 +1317,32 @@ local function clearRegistry()
     S.statsDirty = true
 end
 
-local function requestRefresh()
+function FM.requestRefresh()
     for inst in pairs(S.registry) do
         S.dirty[inst] = true
     end
     S.sweepAccumulator = math.huge
 end
 
-local function luckEspGuiSize()
+function FM.luckEspGuiSize()
     return UDim2.fromOffset(ESP.width * S.espScale, math.floor(ESP.height * S.espScale * 0.85))
 end
 
-local function createLuckEntry(inst)
+function FM.createLuckEntry(inst)
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "FayyMengLuckEsp"
     billboard.Adornee = inst
     billboard.AlwaysOnTop = true
     billboard.ResetOnSpawn = false
     billboard.LightInfluence = 0
-    billboard.Size = luckEspGuiSize()
+    billboard.Size = FM.luckEspGuiSize()
     billboard.StudsOffsetWorldSpace = ESP.offset
     billboard.MaxDistance = math.huge
     billboard.Parent = EspHolder
 
-    local textSize = crystalTextSize()
-    local label, constraint = newLabel("Luck", billboard, 0, 2, Color3.fromRGB(255, 196, 0), false, textSize)
-    local distLabel, distConstraint = newLabel("Distance", billboard, 1, 2, COLORS.extra, false, textSize)
+    local textSize = FM.crystalTextSize()
+    local label, constraint = FM.newLabel("Luck", billboard, 0, 2, Color3.fromRGB(255, 196, 0), false, textSize)
+    local distLabel, distConstraint = FM.newLabel("Distance", billboard, 1, 2, COLORS.extra, false, textSize)
 
     return {
         gui = billboard,
@@ -1353,7 +1355,7 @@ local function createLuckEntry(inst)
     }
 end
 
-local function destroyLuckEntry(inst)
+function FM.destroyLuckEntry(inst)
     local entry = S.luckEspCache[inst]
     if not entry then return end
     if entry.gui then entry.gui:Destroy() end
@@ -1371,21 +1373,21 @@ clearLuckEsp = function()
     S.statsDirty = true
 end
 
-local function luckMeetsFilter(inst)
+function FM.luckMeetsFilter(inst)
     if S.minLuck <= 0 then return true end
-    local ok, luck = pcall(crystalLuck, inst)
+    local ok, luck = pcall(FM.crystalLuck, inst)
     return (ok and luck or 0) * 100 >= S.minLuck
 end
 
-local function syncLuckCrystal(inst)
-    if not S.luckEspActive or getAttr(inst, "Collected") == true or not luckMeetsFilter(inst) then
-        destroyLuckEntry(inst)
+function FM.syncLuckCrystal(inst)
+    if not S.luckEspActive or FM.getAttr(inst, "Collected") == true or not FM.luckMeetsFilter(inst) then
+        FM.destroyLuckEntry(inst)
         return
     end
 
     local entry = S.luckEspCache[inst]
     if not entry then
-        local built, result = pcall(createLuckEntry, inst)
+        local built, result = pcall(FM.createLuckEntry, inst)
         if not built then return end
         entry = result
         S.luckEspCache[inst] = entry
@@ -1393,16 +1395,16 @@ local function syncLuckCrystal(inst)
         S.statsDirty = true
     end
 
-    local ok, luck = pcall(crystalLuck, inst)
-    local luckText = formatLuck(ok and luck or 0)
-    local root = getRoot()
+    local ok, luck = pcall(FM.crystalLuck, inst)
+    local luckText = FM.formatLuck(ok and luck or 0)
+    local root = FM.getRoot()
     local distanceText = "--"
     if root then
-        distanceText = formatDistance((inst.Position - root.Position).Magnitude)
+        distanceText = FM.formatDistance((inst.Position - root.Position).Magnitude)
     end
 
-    local textSize = crystalTextSize()
-    entry.gui.Size = luckEspGuiSize()
+    local textSize = FM.crystalTextSize()
+    entry.gui.Size = FM.luckEspGuiSize()
     if entry.constraint then
         entry.constraint.MaxTextSize = textSize
     end
@@ -1426,30 +1428,30 @@ local function syncLuckCrystal(inst)
     end
 end
 
-local function refreshLuckEsp()
+function FM.refreshLuckEsp()
     for inst in pairs(S.registry) do
-        syncLuckCrystal(inst)
+        FM.syncLuckCrystal(inst)
     end
-    eachContainer(function(container)
+    FM.eachContainer(function(container)
         for _, child in ipairs(container:GetChildren()) do
-            if isCrystal(child) and not S.registry[child] then
-                syncLuckCrystal(child)
+            if FM.isCrystal(child) and not S.registry[child] then
+                FM.syncLuckCrystal(child)
             end
         end
     end)
 end
 
-local function trackingEnabled()
+function FM.trackingEnabled()
     return S.espActive or S.luckEspActive
 end
 
-local function onContainerChild(child)
-    if looksLikeCrystal(child) then
+function FM.onContainerChild(child)
+    if FM.looksLikeCrystal(child) then
         S.candidates[child] = os.clock() + ESP.ttl
     end
 end
 
-local function watchContainers()
+function FM.watchContainers()
     for container, connection in pairs(S.containerConns) do
         if not container:IsDescendantOf(game) then
             connection:Disconnect()
@@ -1457,29 +1459,29 @@ local function watchContainers()
         end
     end
 
-    eachContainer(function(container)
+    FM.eachContainer(function(container)
         if S.containerConns[container] then
             return
         end
-        S.containerConns[container] = container.ChildAdded:Connect(onContainerChild)
+        S.containerConns[container] = container.ChildAdded:Connect(FM.onContainerChild)
     end)
 end
 
-local function unwatchContainers()
+function FM.unwatchContainers()
     for container, connection in pairs(S.containerConns) do
         connection:Disconnect()
         S.containerConns[container] = nil
     end
 end
 
-local function updateTracking()
-    if trackingEnabled() then
+function FM.updateTracking()
+    if FM.trackingEnabled() then
         S.sweepAccumulator = math.huge
-        watchContainers()
-        requestRefresh()
+        FM.watchContainers()
+        FM.requestRefresh()
     else
-        unwatchContainers()
-        clearRegistry()
+        FM.unwatchContainers()
+        FM.clearRegistry()
     end
 end
 
@@ -1489,7 +1491,7 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
         S.StatsLabel:SetText(string.format("Tracking: %d  |  Shown: %d", S.registryCount, S.espCount))
     end
 
-    if not trackingEnabled() then
+    if not FM.trackingEnabled() then
         return
     end
 
@@ -1499,9 +1501,9 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
         for inst, expiry in pairs(S.candidates) do
             if not inst.Parent then
                 S.candidates[inst] = nil
-            elseif isCrystal(inst) then
+            elseif FM.isCrystal(inst) then
                 S.candidates[inst] = nil
-                trackCrystal(inst)
+                FM.trackCrystal(inst)
             elseif now > expiry then
                 S.candidates[inst] = nil
             end
@@ -1512,10 +1514,10 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
         local deadline = now + ESP.budget
         local processed = 0
         for inst in pairs(S.dirty) do
-            local ok, err = pcall(syncCrystal, inst)
+            local ok, err = pcall(FM.syncCrystal, inst)
             if not ok then
                 S.dirty[inst] = nil
-                reportError("sync", err)
+                FM.reportError("sync", err)
             end
             processed += 1
             if processed >= 12 or os.clock() > deadline then
@@ -1528,14 +1530,14 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.sweepAccumulator >= ESP.sweep then
         S.sweepAccumulator = 0
         local ok, err = pcall(function()
-            watchContainers()
-            sweep()
+            FM.watchContainers()
+            FM.sweep()
             if S.luckEspActive then
-                refreshLuckEsp()
+                FM.refreshLuckEsp()
             end
         end)
         if not ok then
-            reportError("sweep", err)
+            FM.reportError("sweep", err)
         end
     end
 
@@ -1543,15 +1545,15 @@ local espConn = RunService.Heartbeat:Connect(function(deltaTime)
         S.distanceAccumulator += deltaTime
         if S.distanceAccumulator >= PACE.distance then
             S.distanceAccumulator = 0
-            local ok, err = pcall(updateDistances)
+            local ok, err = pcall(FM.updateDistances)
             if not ok then
-                reportError("distance", err)
+                FM.reportError("distance", err)
             end
         end
     end
 end)
 
-local function destroyPlayerEntry(player)
+function FM.destroyPlayerEntry(player)
     local entry = S.playerCache[player]
     if not entry then
         return
@@ -1570,20 +1572,20 @@ local function destroyPlayerEntry(player)
     S.playerCache[player] = nil
 end
 
-local function createPlayerEntry(player)
+function FM.createPlayerEntry(player)
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "FayyMengPlayerEsp"
     billboard.AlwaysOnTop = true
     billboard.ResetOnSpawn = false
     billboard.LightInfluence = 0
-    billboard.Size = playerGuiSize()
+    billboard.Size = FM.playerGuiSize()
     billboard.StudsOffsetWorldSpace = PLAYER.offset
     billboard.MaxDistance = math.huge
     billboard.Parent = EspHolder
 
-    local textSize = playerTextSize()
-    local nameLabel, nameConstraint = newLabel("Name", billboard, 0, 2, COLORS.player, false, textSize)
-    local distanceLabel, distanceConstraint = newLabel("Distance", billboard, 1, 2, COLORS.extra, false, textSize)
+    local textSize = FM.playerTextSize()
+    local nameLabel, nameConstraint = FM.newLabel("Name", billboard, 0, 2, COLORS.player, false, textSize)
+    local distanceLabel, distanceConstraint = FM.newLabel("Distance", billboard, 1, 2, COLORS.extra, false, textSize)
 
     nameLabel.Text = player.DisplayName
 
@@ -1610,19 +1612,19 @@ local function createPlayerEntry(player)
     }
 end
 
-local function clearPlayerEsp()
+function FM.clearPlayerEsp()
     for player in pairs(S.playerCache) do
-        destroyPlayerEntry(player)
+        FM.destroyPlayerEntry(player)
     end
     S.playerCache = {}
 end
 
-local function updatePlayerEsp()
+function FM.updatePlayerEsp()
     if not S.playerEspActive then
         return
     end
 
-    local root = getRoot()
+    local root = FM.getRoot()
     local origin = root and root.Position or nil
 
     for _, player in ipairs(Players:GetPlayers()) do
@@ -1633,12 +1635,12 @@ local function updatePlayerEsp()
             if target then
                 local entry = S.playerCache[player]
                 if not entry then
-                    local built, result = pcall(createPlayerEntry, player)
+                    local built, result = pcall(FM.createPlayerEntry, player)
                     if built then
                         entry = result
                         S.playerCache[player] = entry
                     else
-                        reportError("player", result)
+                        FM.reportError("player", result)
                     end
                 end
 
@@ -1657,14 +1659,14 @@ local function updatePlayerEsp()
                         entry.name.Text = player.DisplayName
                     end
 
-                    local text = origin and formatDistance((target.Position - origin).Magnitude) or "--"
+                    local text = origin and FM.formatDistance((target.Position - origin).Magnitude) or "--"
                     if text ~= entry.distanceText then
                         entry.distanceText = text
                         entry.distance.Text = text
                     end
                 end
             else
-                destroyPlayerEntry(player)
+                FM.destroyPlayerEntry(player)
             end
         end
     end
@@ -1679,7 +1681,7 @@ local function updatePlayerEsp()
 
     if gone then
         for _, player in ipairs(gone) do
-            destroyPlayerEntry(player)
+            FM.destroyPlayerEntry(player)
         end
     end
 end
@@ -1687,7 +1689,7 @@ end
 local streamMark = 0
 local streamSpot
 
-local function requestStream(position)
+function FM.requestStream(position)
     if typeof(position) ~= "Vector3" then
         return
     end
@@ -1708,15 +1710,15 @@ local function requestStream(position)
     end)
 end
 
-local function applyPivot(cframe)
+function FM.applyPivot(cframe)
     local character = LocalPlayer.Character
     if not character then
         return false
     end
 
-    requestStream(cframe.Position)
+    FM.requestStream(cframe.Position)
 
-    local root = getRoot()
+    local root = FM.getRoot()
     if not root then
         return false
     end
@@ -1743,7 +1745,7 @@ local function applyPivot(cframe)
     return true
 end
 
-local function findClearGoal(position, ignore)
+function FM.findClearGoal(position, ignore)
     local params = OverlapParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = ignore
@@ -1763,12 +1765,12 @@ local function findClearGoal(position, ignore)
     return position + TP.clear[#TP.clear]
 end
 
-local function finishTeleport()
+function FM.finishTeleport()
     if not S.tpState then
         return
     end
 
-    local root = getRoot()
+    local root = FM.getRoot()
     if root then
         pcall(function()
             root.AssemblyLinearVelocity = Vector3.zero
@@ -1791,7 +1793,7 @@ local function finishTeleport()
     S.tpState = nil
 end
 
-local function teleportTo(target)
+function FM.teleportTo(target)
     local position
     if typeof(target) == "Vector3" then
         position = target
@@ -1808,12 +1810,12 @@ local function teleportTo(target)
         return false
     end
 
-    local root = getRoot()
+    local root = FM.getRoot()
     if not root then
         return false
     end
 
-    finishTeleport()
+    FM.finishTeleport()
     if Move and Move.glideStop then
         pcall(Move.glideStop)
     end
@@ -1834,7 +1836,7 @@ local function teleportTo(target)
         ignore[#ignore + 1] = target
     end
 
-    local goalPos = findClearGoal(position + TP.offset, ignore)
+    local goalPos = FM.findClearGoal(position + TP.offset, ignore)
     local goalFrame = CFrame.new(goalPos, goalPos + Vector3.new(0, 0, -1))
 
     if Move and Move.glide then
@@ -1848,7 +1850,7 @@ local function teleportTo(target)
             task.spawn(function()
                 local deadline = os.clock() + 4
                 while os.clock() < deadline do
-                    local r = getRoot()
+                    local r = FM.getRoot()
                     if r and (r.Position - goalPos).Magnitude <= 6 then
                         break
                     end
@@ -1860,14 +1862,14 @@ local function teleportTo(target)
                 if Move.glideStop then
                     pcall(Move.glideStop)
                 end
-                applyPivot(goalFrame)
-                finishTeleport()
+                FM.applyPivot(goalFrame)
+                FM.finishTeleport()
             end)
             return true
         end
     end
 
-    if not applyPivot(goalFrame) then
+    if not FM.applyPivot(goalFrame) then
         return false
     end
 
@@ -1883,13 +1885,13 @@ local pendingActions = {}
 local promptRestores = {}
 local claimed = {}
 
-local function schedule(delay, fn)
+function FM.schedule(delay, fn)
     pendingActions[#pendingActions + 1] = { at = os.clock() + delay, fn = fn }
 end
 
 local promptCache = setmetatable({}, { __mode = "k" })
 
-local function crystalPrompt(inst)
+function FM.crystalPrompt(inst)
     local cached = promptCache[inst]
     if cached and cached.Parent then
         return cached
@@ -1911,7 +1913,7 @@ local function crystalPrompt(inst)
     return nil
 end
 
-local function surfaceDistance(part, origin)
+function FM.surfaceDistance(part, origin)
     local ok, distance = pcall(function()
         local point = part.CFrame:PointToObjectSpace(origin)
         local half = part.Size * 0.5
@@ -1930,7 +1932,7 @@ local function surfaceDistance(part, origin)
     return (part.Position - origin).Magnitude
 end
 
-local function firePrompt(prompt)
+function FM.firePrompt(prompt)
     if not promptRestores[prompt] then
         promptRestores[prompt] = {
             hold = prompt.HoldDuration,
@@ -1963,7 +1965,7 @@ local function firePrompt(prompt)
         end)
     end
 
-    schedule(PICK.restore, function()
+    FM.schedule(PICK.restore, function()
         local saved = promptRestores[prompt]
         if not saved then
             return
@@ -1993,7 +1995,7 @@ end)
 local pickupFound = {}
 local pickupSeen = {}
 
-local function pickupCandidates(free, origin)
+function FM.pickupCandidates(free, origin)
     local found = pickupFound
     local seen = pickupSeen
     table.clear(found)
@@ -2006,7 +2008,7 @@ local function pickupCandidates(free, origin)
         end
         seen[child] = true
 
-        if not child.Parent or not isCrystal(child) or getAttr(child, "Collected") == true then
+        if not child.Parent or not FM.isCrystal(child) or FM.getAttr(child, "Collected") == true then
             return
         end
 
@@ -2015,10 +2017,10 @@ local function pickupCandidates(free, origin)
             return
         end
 
-        local value = crystalValue(child)
+        local value = FM.crystalValue(child)
 
         if S.autoPickupActive and not S.pickupValueActive and not S.pickupLuckActive then
-            if not meetsFilter(child, value) then
+            if not FM.meetsFilter(child, value) then
                 return
             end
         end
@@ -2030,7 +2032,7 @@ local function pickupCandidates(free, origin)
         end
 
         if S.pickupLuckActive then
-            local ok, luck = pcall(crystalLuck, child)
+            local ok, luck = pcall(FM.crystalLuck, child)
             local luckPct = (ok and luck or 0) * 100
             if luckPct < (S.pickupMinLuck or 0) then
                 return
@@ -2041,19 +2043,19 @@ local function pickupCandidates(free, origin)
             return
         end
 
-        local weight = crystalWeight(child)
+        local weight = FM.crystalWeight(child)
         if weight > free then
             return
         end
 
-        local distance = surfaceDistance(child, origin)
+        local distance = FM.surfaceDistance(child, origin)
         if distance > PICK.range then
             return
         end
 
         found[#found + 1] = {
             inst = child,
-            prompt = crystalPrompt(child),
+            prompt = FM.crystalPrompt(child),
             value = value,
             weight = weight,
             distance = distance,
@@ -2072,7 +2074,7 @@ local function pickupCandidates(free, origin)
         end
     end
 
-    eachContainer(function(container)
+    FM.eachContainer(function(container)
         for _, child in ipairs(container:GetChildren()) do
             if child:IsA("BasePart") then
                 consider(child)
@@ -2098,7 +2100,7 @@ local function pickupCandidates(free, origin)
     return found
 end
 
-local function grabCrystal(inst, prompt)
+function FM.grabCrystal(inst, prompt)
     local sent = false
 
     if HoldComplete then
@@ -2108,10 +2110,10 @@ local function grabCrystal(inst, prompt)
     end
 
     if not prompt then
-        prompt = crystalPrompt(inst)
+        prompt = FM.crystalPrompt(inst)
     end
 
-    if prompt and prompt.Parent and firePrompt(prompt) then
+    if prompt and prompt.Parent and FM.firePrompt(prompt) then
         sent = true
     end
 
@@ -2125,7 +2127,7 @@ local function grabCrystal(inst, prompt)
     return sent
 end
 
-local function instantPromptPatch(prompt)
+function FM.instantPromptPatch(prompt)
     if S.instantPatched[prompt] or promptRestores[prompt] then
         return
     end
@@ -2143,7 +2145,7 @@ local function instantPromptPatch(prompt)
     end)
 end
 
-local function restoreInstantPrompts()
+function FM.restoreInstantPrompts()
     for prompt, saved in pairs(S.instantPatched) do
         if prompt.Parent then
             pcall(function()
@@ -2157,7 +2159,7 @@ local function restoreInstantPrompts()
     table.clear(S.instantPatched)
 end
 
-local function nearbyCrystalParts(origin, radius)
+function FM.nearbyCrystalParts(origin, radius)
     pickupParams.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
 
     local ok, hits = pcall(function()
@@ -2171,14 +2173,14 @@ local function nearbyCrystalParts(origin, radius)
     return nil
 end
 
-local function isRuneLike(inst)
+function FM.isRuneLike(inst)
     if not inst then
         return false
     end
-    if getAttr(inst, "IsRune") == true then
+    if FM.getAttr(inst, "IsRune") == true then
         return true
     end
-    if getAttr(inst, "RuneId") ~= nil or getAttr(inst, "RuneName") ~= nil then
+    if FM.getAttr(inst, "RuneId") ~= nil or FM.getAttr(inst, "RuneName") ~= nil then
         return true
     end
     if type(inst.Name) == "string" and inst.Name:find("Rune", 1, true) then
@@ -2187,8 +2189,8 @@ local function isRuneLike(inst)
     return false
 end
 
-local function refreshInstantPrompts()
-    local root = getRoot()
+function FM.refreshInstantPrompts()
+    local root = FM.getRoot()
     if not root then
         return
     end
@@ -2219,7 +2221,7 @@ local function refreshInstantPrompts()
                 for _, inst in ipairs(part:GetChildren()) do
                     if inst:IsA("ProximityPrompt") and not seen[inst] then
                         seen[inst] = true
-                        instantPromptPatch(inst)
+                        FM.instantPromptPatch(inst)
                     end
                 end
                 local parent = part.Parent
@@ -2227,7 +2229,7 @@ local function refreshInstantPrompts()
                     for _, inst in ipairs(parent:GetChildren()) do
                         if inst:IsA("ProximityPrompt") and not seen[inst] then
                             seen[inst] = true
-                            instantPromptPatch(inst)
+                            FM.instantPromptPatch(inst)
                         end
                     end
                 end
@@ -2238,28 +2240,28 @@ local function refreshInstantPrompts()
 end
 
 
-local function isBackpackCrystalTool(tool)
+function FM.isBackpackCrystalTool(tool)
     if not tool or not tool:IsA("Tool") then
         return false
     end
     -- crystals have Tier + WeightKg; exclude pure runes-only if no Tier
-    if getAttr(tool, "Tier") ~= nil and getAttr(tool, "WeightKg") ~= nil then
+    if FM.getAttr(tool, "Tier") ~= nil and FM.getAttr(tool, "WeightKg") ~= nil then
         return true
     end
-    if getAttr(tool, "Value") ~= nil and getAttr(tool, "WeightKg") ~= nil then
+    if FM.getAttr(tool, "Value") ~= nil and FM.getAttr(tool, "WeightKg") ~= nil then
         return true
     end
     return false
 end
 
-local function collectBackpackCrystals()
+function FM.collectBackpackCrystals()
     local list = {}
     local function scan(container)
         if not container then
             return
         end
         for _, child in ipairs(container:GetChildren()) do
-            if isBackpackCrystalTool(child) then
+            if FM.isBackpackCrystalTool(child) then
                 list[#list + 1] = child
             end
         end
@@ -2269,8 +2271,8 @@ local function collectBackpackCrystals()
     return list
 end
 
-local function dropAllCrystals()
-    local remote = findRemote("CrystalDropRequest")
+function FM.dropAllCrystals()
+    local remote = FM.findRemote("CrystalDropRequest")
     if not remote then
         WindUI:Notify({
             Title = "Drop Crystals",
@@ -2281,7 +2283,7 @@ local function dropAllCrystals()
         return
     end
 
-    local crystals = collectBackpackCrystals()
+    local crystals = FM.collectBackpackCrystals()
     if #crystals == 0 then
         WindUI:Notify({
             Title = "Drop Crystals",
@@ -2339,8 +2341,8 @@ local function dropAllCrystals()
     end)
 end
 
-local function pickupAllDroppedCrystals()
-    local root = getRoot()
+function FM.pickupAllDroppedCrystals()
+    local root = FM.getRoot()
     if not root then
         return
     end
@@ -2369,7 +2371,7 @@ local function pickupAllDroppedCrystals()
         local seen = {}
         if ok and parts then
             for _, part in ipairs(parts) do
-                if isCrystal(part) and getAttr(part, "Collected") ~= true and not seen[part] then
+                if FM.isCrystal(part) and FM.getAttr(part, "Collected") ~= true and not seen[part] then
                     seen[part] = true
                     targets[#targets + 1] = part
                 end
@@ -2381,7 +2383,7 @@ local function pickupAllDroppedCrystals()
             local folder = Workspace:FindFirstChild(folderName)
             if folder then
                 for _, child in ipairs(folder:GetDescendants()) do
-                    if isCrystal(child) and getAttr(child, "Collected") ~= true and not seen[child] then
+                    if FM.isCrystal(child) and FM.getAttr(child, "Collected") ~= true and not seen[child] then
                         local pos = child:IsA("BasePart") and child.Position
                         if pos and (pos - root.Position).Magnitude <= radius then
                             seen[child] = true
@@ -2397,18 +2399,18 @@ local function pickupAllDroppedCrystals()
             if S._stopCrystalOps then
                 break
             end
-            if not crystal.Parent or getAttr(crystal, "Collected") == true then
+            if not crystal.Parent or FM.getAttr(crystal, "Collected") == true then
                 continue
             end
 
             -- No teleport (less suspicious) — only fire nearby prompts
-            local prompt = crystalPrompt(crystal)
+            local prompt = FM.crystalPrompt(crystal)
             if prompt then
-                instantPromptPatch(prompt)
+                FM.instantPromptPatch(prompt)
             end
-            if grabCrystal and grabCrystal(crystal, prompt) then
+            if grabCrystal and FM.grabCrystal(crystal, prompt) then
                 picked += 1
-            elseif prompt and firePrompt(prompt) then
+            elseif prompt and FM.firePrompt(prompt) then
                 picked += 1
             end
             task.wait(1.2)
@@ -2424,30 +2426,30 @@ local function pickupAllDroppedCrystals()
     end)
 end
 
-local function setInstantPrompt(value)
+function FM.setInstantPrompt(value)
     S.instantPromptActive = value
     S.instantAccumulator = math.huge
 
     if not value then
-        restoreInstantPrompts()
+        FM.restoreInstantPrompts()
     end
 end
 
-local function instantGrab()
+function FM.instantGrab()
     if not S.instantPromptActive then
         return
     end
 
-    if backpackFree() <= 0 then
+    if FM.backpackFree() <= 0 then
         return
     end
 
-    local root = getRoot()
+    local root = FM.getRoot()
     if not root then
         return
     end
 
-    local hits = nearbyCrystalParts(root.Position, PICK.range + PICK.pad)
+    local hits = FM.nearbyCrystalParts(root.Position, PICK.range + PICK.pad)
     if not hits then
         return
     end
@@ -2455,11 +2457,11 @@ local function instantGrab()
     local best, bestPrompt, bestDistance
 
     for _, part in ipairs(hits) do
-        if part.Parent and isCrystal(part) and getAttr(part, "Collected") ~= true then
-            local distance = surfaceDistance(part, root.Position)
+        if part.Parent and FM.isCrystal(part) and FM.getAttr(part, "Collected") ~= true then
+            local distance = FM.surfaceDistance(part, root.Position)
             if distance <= PICK.range and (not best or distance < bestDistance) then
                 best = part
-                bestPrompt = crystalPrompt(part)
+                bestPrompt = FM.crystalPrompt(part)
                 bestDistance = distance
             end
         end
@@ -2470,26 +2472,26 @@ local function instantGrab()
     end
 
     if bestPrompt then
-        instantPromptPatch(bestPrompt)
+        FM.instantPromptPatch(bestPrompt)
     end
 
-    if grabCrystal(best, bestPrompt) then
+    if FM.grabCrystal(best, bestPrompt) then
         claimed[best] = os.clock()
     end
 end
 
-local function pickupStep()
+function FM.pickupStep()
     local now = os.clock()
     if now - S.lastPickup < PICK.cooldown then
         return
     end
 
-    local root = getRoot()
+    local root = FM.getRoot()
     if not root then
         return
     end
 
-    local free = backpackFree()
+    local free = FM.backpackFree()
     if free <= 0 then
         S.lastPickup = now
         table.clear(S.candidates)
@@ -2511,10 +2513,10 @@ local function pickupStep()
         end
     end
 
-    S.candidates = pickupCandidates(free, root.Position)
+    S.candidates = FM.pickupCandidates(free, root.Position)
     if #S.candidates == 0 then
         if free > 0.5 then
-            requestStream(root.Position)
+            FM.requestStream(root.Position)
         end
         return
     end
@@ -2530,7 +2532,7 @@ local function pickupStep()
         if entry.weight <= budget and budget > 0 then
             claimed[entry.inst] = now
 
-            if grabCrystal(entry.inst, entry.prompt) then
+            if FM.grabCrystal(entry.inst, entry.prompt) then
                 budget -= entry.weight
                 grabs += 1
             end
@@ -2544,9 +2546,9 @@ local function pickupStep()
     end
 end
 
-local function tryFilteredCrystalPickup(origin, free)
+function FM.tryFilteredCrystalPickup(origin, free)
     if free == nil then
-        free = backpackFree()
+        free = FM.backpackFree()
     end
     if free <= 0 then
         return false
@@ -2565,14 +2567,14 @@ local function tryFilteredCrystalPickup(origin, free)
     -- Heavy world scan is cached; grabs use the cache only
     local list = S._filterCandCache
     if not list or now - (S._filterCandAt or 0) > 0.65 then
-        list = pickupCandidates(free, origin)
+        list = FM.pickupCandidates(free, origin)
         -- Pre-filter by value/luck once when building cache
         local filtered = {}
         for _, entry in ipairs(list or {}) do
             local okValue = not S.pickupValueActive or entry.value >= (S.pickupMinValue or 0)
             local okLuck = true
             if S.pickupLuckActive then
-                local luckOk, luck = pcall(crystalLuck, entry.inst)
+                local luckOk, luck = pcall(FM.crystalLuck, entry.inst)
                 local luckPct = (luckOk and luck or 0) * 100
                 okLuck = luckPct >= (S.pickupMinLuck or 0)
             end
@@ -2592,9 +2594,9 @@ local function tryFilteredCrystalPickup(origin, free)
     -- Take first still-valid candidate from cache
     for i = 1, #list do
         local entry = list[i]
-        if entry and entry.inst and entry.inst.Parent and getAttr(entry.inst, "Collected") ~= true then
+        if entry and entry.inst and entry.inst.Parent and FM.getAttr(entry.inst, "Collected") ~= true then
             claimed[entry.inst] = now
-            if grabCrystal(entry.inst, entry.prompt) then
+            if FM.grabCrystal(entry.inst, entry.prompt) then
                 S.lastFilteredPickup = now
                 S.lastPickup = now
                 table.remove(list, i)
@@ -2608,13 +2610,13 @@ local function tryFilteredCrystalPickup(origin, free)
     return false
 end
 
-local function updateBackpackLabel()
+function FM.updateBackpackLabel()
     if not S.BackpackLabel then
         return
     end
 
-    local capacity = backpackCapacity()
-    local used = backpackWeight()
+    local capacity = FM.backpackCapacity()
+    local used = FM.backpackWeight()
 
     if capacity == math.huge then
         S.BackpackLabel:SetText(string.format("Bag %.1f / \u{221E} kg", used))
@@ -2625,7 +2627,7 @@ local function updateBackpackLabel()
     S.BackpackLabel:SetText(string.format("Bag %.1f / %.1f kg\nFree %.1f kg", used, capacity, free))
 end
 
-local function enforceSpeed(humanoid)
+function FM.enforceSpeed(humanoid)
     if not humanoid or humanoid.WalkSpeed == PACE.boost then
         return
     end
@@ -2635,7 +2637,7 @@ local function enforceSpeed(humanoid)
     end)
 end
 
-local function watchSpeed(humanoid)
+function FM.watchSpeed(humanoid)
     if S.speedHooked == humanoid then
         return
     end
@@ -2653,7 +2655,7 @@ local function watchSpeed(humanoid)
     local ok, connection = pcall(function()
         return humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
             if S.speedActive then
-                enforceSpeed(humanoid)
+                FM.enforceSpeed(humanoid)
             end
         end)
     end)
@@ -2663,19 +2665,19 @@ local function watchSpeed(humanoid)
     end
 end
 
-local function setSpeedBoost(value)
+function FM.setSpeedBoost(value)
     S.speedActive = value
 
     local character = LocalPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 
     if value then
-        watchSpeed(humanoid)
-        enforceSpeed(humanoid)
+        FM.watchSpeed(humanoid)
+        FM.enforceSpeed(humanoid)
         return
     end
 
-    watchSpeed(nil)
+    FM.watchSpeed(nil)
 
     if humanoid then
         pcall(function()
@@ -2688,7 +2690,7 @@ pcall(function()
     Players.PlayerAdded:Connect(function()
         if S.playerEspActive then
             task.defer(function()
-                pcall(updatePlayerEsp)
+                pcall(FM.updatePlayerEsp)
             end)
         end
     end)
@@ -2697,7 +2699,7 @@ pcall(function()
             pcall(function()
                 if S.playerCache and S.playerCache[player] then
                 end
-                updatePlayerEsp()
+                FM.updatePlayerEsp()
             end)
         end
     end)
@@ -2707,8 +2709,8 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
     if S.tpState then
         local ok, err = pcall(function()
             if not S.tpState.usingGlide then
-                if not applyPivot(S.tpState.goal) then
-                    finishTeleport()
+                if not FM.applyPivot(S.tpState.goal) then
+                    FM.finishTeleport()
                     return
                 end
             end
@@ -2718,15 +2720,15 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
                     pcall(Move.glideStop)
                 end
                 if S.tpState.goal then
-                    applyPivot(S.tpState.goal)
+                    FM.applyPivot(S.tpState.goal)
                 end
-                finishTeleport()
+                FM.finishTeleport()
             end
         end)
 
         if not ok then
-            finishTeleport()
-            reportError("teleport", err)
+            FM.finishTeleport()
+            FM.reportError("teleport", err)
         end
     end
 
@@ -2734,9 +2736,9 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         S._pickupAcc = (S._pickupAcc or 0) + deltaTime
         if S._pickupAcc >= (PACE.pickup or 0.08) then
             S._pickupAcc = 0
-            local ok, err = pcall(pickupStep)
+            local ok, err = pcall(FM.pickupStep)
             if not ok then
-                reportError("pickup", err)
+                FM.reportError("pickup", err)
             end
         end
     end
@@ -2745,9 +2747,9 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         S.instantAccumulator += deltaTime
         if S.instantAccumulator >= PICK.instantTick then
             S.instantAccumulator = 0
-            local ok, err = pcall(refreshInstantPrompts)
+            local ok, err = pcall(FM.refreshInstantPrompts)
             if not ok then
-                reportError("instant", err)
+                FM.reportError("instant", err)
             end
         end
     end
@@ -2756,8 +2758,8 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         local body = LocalPlayer.Character
         local mover = body and body:FindFirstChildOfClass("Humanoid")
         if mover then
-            watchSpeed(mover)
-            enforceSpeed(mover)
+            FM.watchSpeed(mover)
+            FM.enforceSpeed(mover)
         end
     end
 
@@ -2765,9 +2767,9 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         S._playerEspAcc = (S._playerEspAcc or 0) + deltaTime
         if S._playerEspAcc >= (PACE.playerEsp or 0.25) then
             S._playerEspAcc = 0
-            local ok, err = pcall(updatePlayerEsp)
+            local ok, err = pcall(FM.updatePlayerEsp)
             if not ok then
-                reportError("playerEsp", err)
+                FM.reportError("playerEsp", err)
             end
         end
     end
@@ -2775,9 +2777,9 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
     S.statsAccumulator += deltaTime
     if S.statsAccumulator >= PACE.stats then
         S.statsAccumulator = 0
-        local ok, err = pcall(updateBackpackLabel)
+        local ok, err = pcall(FM.updateBackpackLabel)
         if not ok then
-            reportError("backpack", err)
+            FM.reportError("backpack", err)
         end
     end
 
@@ -2792,13 +2794,13 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
             table.remove(pendingActions, index)
             local ok, err = pcall(job.fn)
             if not ok then
-                reportError("action", err)
+                FM.reportError("action", err)
             end
         end
     end
 end)
 
-local function sortedByScore(scoreFn)
+function FM.sortedByScore(scoreFn)
     local scored = {}
     local seen = {}
 
@@ -2807,7 +2809,7 @@ local function sortedByScore(scoreFn)
             return
         end
 
-        if getAttr(inst, "Collected") == true then
+        if FM.getAttr(inst, "Collected") == true then
             return
         end
 
@@ -2821,9 +2823,9 @@ local function sortedByScore(scoreFn)
         consider(inst)
     end
 
-    eachContainer(function(container)
+    FM.eachContainer(function(container)
         for _, child in ipairs(container:GetChildren()) do
-            if isCrystal(child) then
+            if FM.isCrystal(child) then
                 consider(child)
             end
         end
@@ -2843,7 +2845,7 @@ local aimParams = RaycastParams.new()
 aimParams.FilterType = Enum.RaycastFilterType.Exclude
 aimParams.IgnoreWater = true
 
-local function getAimedCrystal()
+function FM.getAimedCrystal()
     local unitRay = Mouse.UnitRay
     local origin = unitRay.Origin
     local direction = unitRay.Direction.Unit
@@ -2852,7 +2854,7 @@ local function getAimedCrystal()
     aimParams.FilterDescendantsInstances = character and { character } or {}
 
     local hit = Workspace:Raycast(origin, direction * PICK.aimRange, aimParams)
-    if hit and hit.Instance and (S.registry[hit.Instance] or isCrystal(hit.Instance)) then
+    if hit and hit.Instance and (S.registry[hit.Instance] or FM.isCrystal(hit.Instance)) then
         return hit.Instance
     end
 
@@ -2881,9 +2883,9 @@ local function getAimedCrystal()
         consider(inst)
     end
 
-    eachContainer(function(container)
+    FM.eachContainer(function(container)
         for _, child in ipairs(container:GetChildren()) do
-            if isCrystal(child) then
+            if FM.isCrystal(child) then
                 consider(child)
             end
         end
@@ -2895,7 +2897,7 @@ local function getAimedCrystal()
     return nil
 end
 
-local function aimTeleport()
+function FM.aimTeleport()
     if not S.espActive then
         WindUI:Notify({
             Title = "FayyMeng",
@@ -2906,7 +2908,7 @@ local function aimTeleport()
         return
     end
 
-    local inst = getAimedCrystal()
+    local inst = FM.getAimedCrystal()
     if not inst then
         WindUI:Notify({
             Title = "FayyMeng",
@@ -2917,11 +2919,11 @@ local function aimTeleport()
         return
     end
 
-    teleportTo(inst)
+    FM.teleportTo(inst)
 end
 
-local function tpToRank(scoreFn, rank, formatter)
-    local entry = sortedByScore(scoreFn)[rank]
+function FM.tpToRank(scoreFn, rank, formatter)
+    local entry = FM.sortedByScore(scoreFn)[rank]
     if not entry or entry.score <= 0 then
         WindUI:Notify({
             Title = "FayyMeng",
@@ -2932,10 +2934,10 @@ local function tpToRank(scoreFn, rank, formatter)
         return
     end
 
-    teleportTo(entry.inst)
+    FM.teleportTo(entry.inst)
 end
 
-local function fireRemote(remote, ...)
+function FM.fireRemote(remote, ...)
     if not remote then
         return false
     end
@@ -2948,7 +2950,7 @@ local function fireRemote(remote, ...)
     return ok
 end
 
-local function unfavoriteAll()
+function FM.unfavoriteAll()
     local cleared = 0
 
     local function scan(container)
@@ -2961,7 +2963,7 @@ local function unfavoriteAll()
                 pcall(function()
                     child:SetAttribute("Favorited", false)
                 end)
-                fireRemote(ToggleFavorite, child, false)
+                FM.fireRemote(ToggleFavorite, child, false)
                 cleared += 1
             end
         end
@@ -2973,7 +2975,7 @@ local function unfavoriteAll()
     return cleared
 end
 
-local function mountainSpot()
+function FM.mountainSpot()
     local centerX = Workspace:GetAttribute("MountainCenterX")
     local centerZ = Workspace:GetAttribute("MountainCenterZ")
 
@@ -3003,7 +3005,7 @@ local function mountainSpot()
     return nil
 end
 
-local function mountainSpan()
+function FM.mountainSpan()
     local radius = Workspace:GetAttribute("MountainRadius")
 
     if typeof(radius) == "number" and radius > 20 then
@@ -3013,7 +3015,7 @@ local function mountainSpan()
     return 150
 end
 
-local function isPointInPart(point, part)
+function FM.isPointInPart(point, part)
     if not (part and part.Parent and part:IsA("BasePart")) then
         return false
     end
@@ -3024,7 +3026,7 @@ local function isPointInPart(point, part)
         and math.abs(localPos.Z) <= half.Z
 end
 
-local function distanceToPart(point, part)
+function FM.distanceToPart(point, part)
     if not (part and part.Parent and part:IsA("BasePart")) then
         return math.huge
     end
@@ -3036,7 +3038,7 @@ local function distanceToPart(point, part)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
-local function isInMountainZone(point)
+function FM.isInMountainZone(point)
     if typeof(point) ~= "Vector3" then
         return false
     end
@@ -3061,7 +3063,7 @@ local function isInMountainZone(point)
     local zones = things and things:FindFirstChild("MountainZones")
     if zones then
         for _, child in ipairs(zones:GetChildren()) do
-            if child:IsA("BasePart") and child.Name == "MountainZone" and isPointInPart(point, child) then
+            if child:IsA("BasePart") and child.Name == "MountainZone" and FM.isPointInPart(point, child) then
                 return true
             end
         end
@@ -3070,7 +3072,7 @@ local function isInMountainZone(point)
     return false
 end
 
-local function isInNoDigZone(point)
+function FM.isInNoDigZone(point)
     local things = Workspace:FindFirstChild("Things")
     if not things then
         return false
@@ -3078,11 +3080,11 @@ local function isInNoDigZone(point)
 
     local noDig = things:FindFirstChild("NoDigging")
     if noDig then
-        if noDig:IsA("BasePart") and isPointInPart(point, noDig) then
+        if noDig:IsA("BasePart") and FM.isPointInPart(point, noDig) then
             return true
         end
         for _, child in ipairs(noDig:GetChildren()) do
-            if child:IsA("BasePart") and isPointInPart(point, child) then
+            if child:IsA("BasePart") and FM.isPointInPart(point, child) then
                 return true
             end
         end
@@ -3091,7 +3093,7 @@ local function isInNoDigZone(point)
     local zones = things:FindFirstChild("Zones")
     if zones then
         for _, child in ipairs(zones:GetChildren()) do
-            if child:IsA("BasePart") and child.Name == "NoDigZone" and isPointInPart(point, child) then
+            if child:IsA("BasePart") and child.Name == "NoDigZone" and FM.isPointInPart(point, child) then
                 return true
             end
         end
@@ -3100,20 +3102,20 @@ local function isInNoDigZone(point)
     return false
 end
 
-local function isAtBase()
-    local root = getRoot()
+function FM.isAtBase()
+    local root = FM.getRoot()
     if not root then
         return true
     end
 
     local pos = root.Position
 
-    if isInMountainZone(pos) then
+    if FM.isInMountainZone(pos) then
         S.wasAtBase = false
         return false
     end
 
-    local spot = mountainSpot()
+    local spot = FM.mountainSpot()
     if not spot then
         S.wasAtBase = pos.Y < 80
         return S.wasAtBase
@@ -3121,7 +3123,7 @@ local function isAtBase()
 
     local flat = Vector2.new(pos.X - spot.X, pos.Z - spot.Z)
     local dist = flat.Magnitude
-    local span = mountainSpan()
+    local span = FM.mountainSpan()
 
     if S.wasAtBase then
         S.wasAtBase = dist > (span + 20)
@@ -3134,7 +3136,7 @@ end
 
 local sellClock = 0
 
-local function doSell()
+function FM.doSell()
     local now = os.clock()
     if now - sellClock < 1.5 then
         return false
@@ -3142,12 +3144,12 @@ local function doSell()
 
     sellClock = now
 
-    unfavoriteAll()
-    fireRemote(GoHome, "sell")
+    FM.unfavoriteAll()
+    FM.fireRemote(GoHome, "sell")
 
-    schedule(0.6, function()
-        unfavoriteAll()
-        fireRemote(SellRequest, "all")
+    FM.schedule(0.6, function()
+        FM.unfavoriteAll()
+        FM.fireRemote(SellRequest, "all")
     end)
 
     return true
@@ -3247,7 +3249,7 @@ do
             local constraints = {}
 
             for index, color in ipairs(colors) do
-                local label, constraint = newLabel("Line" .. index, billboard, index - 1, total, color, false, size)
+                local label, constraint = FM.newLabel("Line" .. index, billboard, index - 1, total, color, false, size)
                 labels[index] = label
                 constraints[index] = constraint
             end
@@ -3353,20 +3355,20 @@ do
         end
 
         local function isRune(inst)
-            if getAttr(inst, "RuneId") ~= nil then
+            if FM.getAttr(inst, "RuneId") ~= nil then
                 return true
             end
-            if getAttr(inst, "IsRune") == true then
+            if FM.getAttr(inst, "IsRune") == true then
                 return true
             end
-            if getAttr(inst, "RuneName") ~= nil then
+            if FM.getAttr(inst, "RuneName") ~= nil then
                 return true
             end
             return inst.Name:find(" Rune", 1, true) ~= nil
         end
 
         local function runeTitle(inst)
-            local id = getAttr(inst, "RuneId") or getAttr(inst, "RuneName")
+            local id = FM.getAttr(inst, "RuneId") or FM.getAttr(inst, "RuneName")
             if type(id) == "string" and id ~= "" then
                 if id:find("Rune", 1, true) then
                     return id
@@ -3437,7 +3439,7 @@ do
         end
 
         local function syncBoulders()
-            local root = getRoot()
+            local root = FM.getRoot()
             local origin = root and root.Position or nil
             local seen = {}
 
@@ -3491,12 +3493,12 @@ do
                 setLine(entry, 1, string.format("[%s] %s", info.rarity, kind))
                 setLine(entry, 2, string.format("%s  \u{2022}  %s crystals", info.pickaxe, info.crystals))
 
-                local distance = origin and formatDistance((anchor.Position - origin).Magnitude) or "--"
+                local distance = origin and FM.formatDistance((anchor.Position - origin).Magnitude) or "--"
                 local hpText = ""
                 if S.miningBoulder == model then
-                    local hp = tonumber(getAttr(model, "Health"))
-                        or tonumber(getAttr(model, "Hp"))
-                        or tonumber(getAttr(model, "CurrentHealth"))
+                    local hp = tonumber(FM.getAttr(model, "Health"))
+                        or tonumber(FM.getAttr(model, "Hp"))
+                        or tonumber(FM.getAttr(model, "CurrentHealth"))
                     if hp then
                         hpText = string.format("  \u{2022}  HP %.0f", hp)
                     else
@@ -3522,7 +3524,7 @@ do
         end
 
         local function grabRunes(radius)
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return 0
             end
@@ -3543,10 +3545,10 @@ do
 
                 local prompt = owner:FindFirstChildOfClass("ProximityPrompt")
                 if not prompt then
-                    prompt = crystalPrompt(owner)
+                    prompt = FM.crystalPrompt(owner)
                 end
                 if not prompt and part ~= owner then
-                    prompt = crystalPrompt(part)
+                    prompt = FM.crystalPrompt(part)
                 end
 
                 if not prompt or not prompt.Parent then
@@ -3560,7 +3562,7 @@ do
 
                 grabbed[prompt] = now
 
-                if firePrompt(prompt) then
+                if FM.firePrompt(prompt) then
                     fired += 1
                     WindUI:Notify({
                         Title = "FayyMeng",
@@ -3617,7 +3619,7 @@ do
             local ok, fired = pcall(grabRunes, radius)
 
             if not ok then
-                reportError("runeGrab", fired)
+                FM.reportError("runeGrab", fired)
                 return 0
             end
 
@@ -3625,7 +3627,7 @@ do
         end
 
         function Mountain.runesNear(radius)
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return 0
             end
@@ -3658,7 +3660,7 @@ do
                     boulderClock = 0
                     local ok, err = pcall(syncBoulders)
                     if not ok then
-                        reportError("boulder", err)
+                        FM.reportError("boulder", err)
                     end
                 end
             end
@@ -3669,7 +3671,7 @@ do
                     grabClock = 0
                     local ok, err = pcall(grabRunes)
                     if not ok then
-                        reportError("runeGrab", err)
+                        FM.reportError("runeGrab", err)
                     end
                 end
             end
@@ -3681,7 +3683,7 @@ end
 
 local Move = {}
 
-do
+;(function()
     local function install()
         local FLY_KEYS = {
             { key = Enum.KeyCode.W, axis = "look", sign = 1 },
@@ -3759,7 +3761,7 @@ do
                 return
             end
 
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return
             end
@@ -3858,7 +3860,7 @@ do
             flyActive = value
 
             if value then
-                local root = getRoot()
+                local root = FM.getRoot()
                 if root then
                     attach(root)
                 end
@@ -3871,7 +3873,7 @@ do
 
                         local ok, err = pcall(flyStep)
                         if not ok then
-                            reportError("fly", err)
+                            FM.reportError("fly", err)
                         end
                     end)
                 end
@@ -3911,7 +3913,7 @@ do
 
                         local ok, err = pcall(noclipStep)
                         if not ok then
-                            reportError("noclip", err)
+                            FM.reportError("noclip", err)
                         end
                     end)
                 end
@@ -4073,7 +4075,7 @@ do
                 return
             end
 
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return
             end
@@ -4109,7 +4111,7 @@ do
             streamClock += deltaTime
             if streamClock >= STREAM_GAP then
                 streamClock = 0
-                requestStream(goalFrame.Position)
+                FM.requestStream(goalFrame.Position)
             end
 
             local look = goalFrame.Rotation
@@ -4138,7 +4140,7 @@ do
             if not running then
                 running = true
 
-                local root = getRoot()
+                local root = FM.getRoot()
                 if root then
                     cursor = root.Position
                     facing = root.CFrame.Rotation
@@ -4154,7 +4156,7 @@ do
 
                     local ok, err = pcall(step, deltaTime)
                     if not ok then
-                        reportError("glide", err)
+                        FM.reportError("glide", err)
                     end
                 end)
             end
@@ -4177,7 +4179,7 @@ do
 
             detach()
 
-            local root = getRoot()
+            local root = FM.getRoot()
             if root then
                 pcall(function()
                     root.AssemblyLinearVelocity = Vector3.zero
@@ -4199,7 +4201,7 @@ do
 end
 
 
-local function mountainPeakPosition()
+function FM.mountainPeakPosition()
     local cx = Workspace:GetAttribute("MountainCenterX")
     local cz = Workspace:GetAttribute("MountainCenterZ")
     local peakY = Workspace:GetAttribute("MountainPeakY")
@@ -4207,7 +4209,7 @@ local function mountainPeakPosition()
     local radius = Workspace:GetAttribute("MountainRadius")
 
     if typeof(cx) ~= "number" or typeof(cz) ~= "number" then
-        local spot = mountainSpot()
+        local spot = FM.mountainSpot()
         if not spot then
             return nil
         end
@@ -4262,8 +4264,8 @@ local function mountainPeakPosition()
     return bestPos + Vector3.new(0, 6, 0)
 end
 
-local function teleportToMountainPeak()
-    local peak = mountainPeakPosition()
+function FM.teleportToMountainPeak()
+    local peak = FM.mountainPeakPosition()
     if not peak then
         WindUI:Notify({
             Title = "Mine A Mountain",
@@ -4274,7 +4276,7 @@ local function teleportToMountainPeak()
         return false
     end
 
-    requestStream(peak)
+    FM.requestStream(peak)
     pcall(function()
         LocalPlayer:RequestStreamAroundAsync(peak, 5)
     end)
@@ -4305,9 +4307,9 @@ local function teleportToMountainPeak()
         local deadline = os.clock() + 45
         local attempts = 0
         while S._peakTweening and os.clock() < deadline do
-            local goal = mountainPeakPosition() or peak
+            local goal = FM.mountainPeakPosition() or peak
             peak = goal
-            requestStream(goal)
+            FM.requestStream(goal)
             pcall(function()
                 LocalPlayer:RequestStreamAroundAsync(goal, 5)
             end)
@@ -4324,10 +4326,10 @@ local function teleportToMountainPeak()
                 if not S._peakTweening then
                     break
                 end
-                local root = getRoot()
+                local root = FM.getRoot()
                 if root and (root.Position - goal).Magnitude <= 14 then
                     -- re-scan true peak; continue if higher ground found
-                    local recheck = mountainPeakPosition()
+                    local recheck = FM.mountainPeakPosition()
                     if recheck and recheck.Y > goal.Y + 8 and (root.Position - recheck).Magnitude > 18 then
                         peak = recheck
                         break
@@ -4351,7 +4353,7 @@ local function teleportToMountainPeak()
         pcall(function()
             if Move and Move.setNoclip then Move.setNoclip(false) end
         end)
-        local root = getRoot()
+        local root = FM.getRoot()
         local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         if root then
             pcall(function()
@@ -4367,8 +4369,8 @@ local function teleportToMountainPeak()
             end)
         end
 
-        local root2 = getRoot()
-        local finalPeak = mountainPeakPosition() or peak
+        local root2 = FM.getRoot()
+        local finalPeak = FM.mountainPeakPosition() or peak
         local dist = root2 and (root2.Position - finalPeak).Magnitude or 999
         WindUI:Notify({
             Title = "Mine A Mountain",
@@ -4390,7 +4392,7 @@ local function teleportToMountainPeak()
 end
 
 
-local function stopAllTeleport()
+function FM.stopAllTeleport()
     S._peakTweening = false
 
     pcall(function()
@@ -4410,12 +4412,12 @@ local function stopAllTeleport()
     end)
     pcall(function()
         if finishTeleport then
-            finishTeleport()
+            FM.finishTeleport()
         end
     end)
 
     local character = LocalPlayer.Character
-    local root = getRoot()
+    local root = FM.getRoot()
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 
     if root then
@@ -4478,21 +4480,21 @@ do
             Callback = function(value)
                 S.espActive = value
                 if not value then
-                    clearEsp()
+                    FM.clearEsp()
                 end
-                updateTracking()
+                FM.updateTracking()
             end
         })
 
         local function setMinValue(text)
-            local parsed = parseValue(text)
+            local parsed = FM.parseValue(text)
             if not parsed then
                 return
             end
 
             S.minValue = math.max(parsed, 0)
             S.valueFilter = S.minValue > 0
-            requestRefresh()
+            FM.requestRefresh()
         end
 
         CrystalBox:Input({
@@ -4520,8 +4522,8 @@ do
                 S.luckEspActive = value
                 if value then
                     S.sweepAccumulator = math.huge
-                    watchContainers()
-                    refreshLuckEsp()
+                    FM.watchContainers()
+                    FM.refreshLuckEsp()
                 else
                     clearLuckEsp()
                 end
@@ -4539,7 +4541,7 @@ do
                     S.minLuck = math.max(v, 0)
                     if S.luckEspActive then
                         clearLuckEsp()
-                        refreshLuckEsp()
+                        FM.refreshLuckEsp()
                     end
                 end
             end
@@ -4559,7 +4561,7 @@ do
             Callback = function(value)
                 S.playerEspActive = value
                 if not value then
-                    clearPlayerEsp()
+                    FM.clearPlayerEsp()
                 end
             end
         })
@@ -4594,14 +4596,14 @@ do
     local function install()
         local TopBox = Tabs.teleports
 
-        local function fmtValue(_, score) return formatShort(score, "$") end
-        local function fmtLuck(_, score) return formatLuck(score) end
-        local function fmtWeight(inst) return formatWeight(crystalWeight(inst)) end
+        local function fmtValue(_, score) return FM.formatShort(score, "$") end
+        local function fmtLuck(_, score) return FM.formatLuck(score) end
+        local function fmtWeight(inst) return FM.formatWeight(FM.crystalWeight(inst)) end
 
         local TP_OPTIONS = {
-            ["Top 1 Value"]  = function() tpToRank(crystalValue,  1, fmtValue)  end,
-            ["Top 1 Luck"]   = function() tpToRank(crystalLuck,   1, fmtLuck)   end,
-            ["Top 1 Weight"] = function() tpToRank(crystalWeight, 1, fmtWeight) end,
+            ["Top 1 Value"]  = function() FM.tpToRank(FM.crystalValue,  1, fmtValue)  end,
+            ["Top 1 Luck"]   = function() FM.tpToRank(FM.crystalLuck,   1, fmtLuck)   end,
+            ["Top 1 Weight"] = function() FM.tpToRank(FM.crystalWeight, 1, fmtWeight) end,
         }
 
         local tpDropdown = TopBox:Dropdown({
@@ -4642,17 +4644,17 @@ do
         PickupBox:Toggle({
             Title = "Instant Prompt",
             Value = false,
-            Callback = setInstantPrompt
+            Callback = FM.setInstantPrompt
         })
 
         PickupBox:Button({
             Title = "Drop All Crystals",
-            Callback = dropAllCrystals,
+            Callback = FM.dropAllCrystals,
         })
 
         PickupBox:Button({
             Title = "Pickup All Dropped Crystals",
-            Callback = pickupAllDroppedCrystals,
+            Callback = FM.pickupAllDroppedCrystals,
         })
 
         PickupBox:Button({
@@ -4687,7 +4689,7 @@ do
             Value = "",
             Placeholder = "500k / 1b",
             Callback = function(text)
-                local parsed = parseValue(text)
+                local parsed = FM.parseValue(text)
                 if parsed then
                     S.pickupMinValue = math.max(parsed, 0)
                 end
@@ -4725,7 +4727,7 @@ do
         MoveBox:Toggle({
             Title = "Speed Boost",
             Value = false,
-            Callback = setSpeedBoost
+            Callback = FM.setSpeedBoost
         })
 
         MoveBox:Toggle({
@@ -4797,9 +4799,9 @@ do
             end
 
             if S.instantPromptActive and pressed == "E" then
-                local ok, err = pcall(instantGrab)
+                local ok, err = pcall(FM.instantGrab)
                 if not ok then
-                    reportError("instant", err)
+                    FM.reportError("instant", err)
                 end
             end
 
@@ -4808,9 +4810,9 @@ do
             end
 
             if pressed == aimKeybind then
-                local ok, err = pcall(aimTeleport)
+                local ok, err = pcall(FM.aimTeleport)
                 if not ok then
-                    reportError("aim", err)
+                    FM.reportError("aim", err)
                 end
             end
         end)
@@ -4824,38 +4826,38 @@ do
         TeleportBox:Button({
             Title = "TP Home",
             Callback = function()
-                fireRemote(GoHome, "home")
+                FM.fireRemote(GoHome, "home")
             end
         })
 
         TeleportBox:Button({
             Title = "TP Mountain Peak",
             Callback = function()
-                teleportToMountainPeak()
+                FM.teleportToMountainPeak()
             end
         })
 
         TeleportBox:Button({
             Title = "Stop All TP",
-            Callback = stopAllTeleport,
+            Callback = FM.stopAllTeleport,
         })
 
         TeleportBox:Button({
             Title = "Sell All",
             Callback = function()
-                if doSell() then
+                if FM.doSell() then
                 end
             end
         })
     end
 
     install()
-end
+end)()
 
 local Net = {}
 local netConns = {}
 
-do
+;(function()
     local function install()
         local HttpService = game:GetService("HttpService")
         local TeleportService = game:GetService("TeleportService")
@@ -5116,7 +5118,7 @@ end
 
 
 
-local function resolveUserId(input)
+function FM.resolveUserId(input)
     if input == nil then
         return nil
     end
@@ -5137,8 +5139,8 @@ local function resolveUserId(input)
     return nil
 end
 
-local function joinServerByUser(input)
-    local userId = resolveUserId(input)
+function FM.joinServerByUser(input)
+    local userId = FM.resolveUserId(input)
     if not userId then
         WindUI:Notify({
             Title = "Join Server",
@@ -5259,7 +5261,7 @@ local function joinServerByUser(input)
     end)
 end
 
-local function nearestOtherPlayer(origin)
+function FM.nearestOtherPlayer(origin)
     local best, bestDist = nil, math.huge
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
@@ -5277,7 +5279,7 @@ local function nearestOtherPlayer(origin)
     return best, bestDist
 end
 
-local function safeModeStep()
+function FM.safeModeStep()
     if not S.safeMode then
         if S.safeFleeing then
             S.safeFleeing = false
@@ -5292,12 +5294,12 @@ local function safeModeStep()
         return false
     end
 
-    local root = getRoot()
+    local root = FM.getRoot()
     if not root then
         return false
     end
 
-    local threat, dist = nearestOtherPlayer(root.Position)
+    local threat, dist = FM.nearestOtherPlayer(root.Position)
     local SAFE_RADIUS = 200
     local FLEE_DIST = 1000
 
@@ -5316,7 +5318,7 @@ local function safeModeStep()
                         end
                     end)
                 else
-                    pcall(teleportTo, ret)
+                    pcall(FM.teleportTo, ret)
                 end
             end
             return false
@@ -5338,19 +5340,18 @@ local function safeModeStep()
             pcall(Move.setNoclip, true)
             pcall(Move.glide, CFrame.new(fleePos), fleePos)
         else
-            pcall(teleportTo, fleePos)
+            pcall(FM.teleportTo, fleePos)
         end
         return true
     end
 
     return false
-end
-
+end)()
 
 local Farm = {}
 local farmConn
 
-do
+;(function()
     local function install()
         local FARM_KINDS = { "Mossite", "Voltite", "Gildrite", "Rimeveil", "Nocturnite" }
 
@@ -5461,7 +5462,7 @@ do
                 return digRemote
             end
 
-            digRemote = findRemote("DigRequest")
+            digRemote = FM.findRemote("DigRequest")
             return digRemote
         end
 
@@ -5470,7 +5471,7 @@ do
                 return false
             end
 
-            if getAttr(tool, "IsPickaxe") == true then
+            if FM.getAttr(tool, "IsPickaxe") == true then
                 return true
             end
 
@@ -5478,7 +5479,7 @@ do
                 return true
             end
 
-            return getAttr(tool, "DigPower") ~= nil and getAttr(tool, "Tier") == nil
+            return FM.getAttr(tool, "DigPower") ~= nil and FM.getAttr(tool, "Tier") == nil
         end
 
         local function pickScore(tool)
@@ -5487,7 +5488,7 @@ do
             end
 
             local score = 1
-            local power = tonumber(getAttr(tool, "DigPower"))
+            local power = tonumber(FM.getAttr(tool, "DigPower"))
             if power then
                 score += power
             end
@@ -5725,7 +5726,7 @@ do
         end
 
         local function visibleAnchor(model)
-            local root = getRoot()
+            local root = FM.getRoot()
             local origin = root and root.Position
             local pick, pickDistance, fallback, fallbackDistance
 
@@ -5769,7 +5770,7 @@ do
         end
 
         local function hitSpot(part, model)
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return part.Position
             end
@@ -5805,7 +5806,7 @@ do
             local pick = tool or heldPick
             if pick then
                 for _, key in ipairs(COOLDOWN_KEYS) do
-                    local value = tonumber(getAttr(pick, key))
+                    local value = tonumber(FM.getAttr(pick, key))
                     if value and value > 0 then
                         return math.max(value, SWING_FLOOR)
                     end
@@ -5863,7 +5864,7 @@ do
                     end
                 end
 
-                for _, point in ipairs(sweep) do
+                for _, point in ipairs(FM.sweep) do
                     event:FireServer(name, point)
                 end
             end)
@@ -5874,7 +5875,7 @@ do
                 return false
             end
             if S.farmMode == "Teleport" then
-                local root = getRoot()
+                local root = FM.getRoot()
                 if root then
                     pcall(function()
                         root.CFrame = goal
@@ -5952,18 +5953,18 @@ do
         end
 
         local function boulderHealth(model)
-            local hp = getAttr(model, "Health")
+            local hp = FM.getAttr(model, "Health")
             if hp == nil then
-                hp = getAttr(model, "Hp")
+                hp = FM.getAttr(model, "Hp")
             end
             if hp == nil then
-                hp = getAttr(model, "CurrentHealth")
+                hp = FM.getAttr(model, "CurrentHealth")
             end
             return tonumber(hp)
         end
 
         local function pickTarget()
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return nil
             end
@@ -5994,7 +5995,7 @@ do
         end
 
         local function approach(part, model, turn, spot, pad)
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 return nil
             end
@@ -6075,7 +6076,7 @@ do
         end
 
         local function step(deltaTime)
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 statusText = "Waiting for character"
                 return
@@ -6083,7 +6084,7 @@ do
 
             local now = os.clock()
 
-            if safeModeStep() then
+            if FM.safeModeStep() then
                 statusText = "Safe Mode: avoiding player"
                 return
             end
@@ -6092,8 +6093,8 @@ do
                 filterPickClock = (filterPickClock or 0) + deltaTime
                 if filterPickClock >= 0.12 then
                     filterPickClock = 0
-                    local free = backpackFree()
-                    if free > 0 and tryFilteredCrystalPickup(root.Position, free) then
+                    local free = FM.backpackFree()
+                    if free > 0 and FM.tryFilteredCrystalPickup(root.Position, free) then
                         statusText = "Picking filtered crystals"
                         return
                     end
@@ -6102,8 +6103,8 @@ do
 
             if phase == "scan" then
                 if not scanned then
-                    local spot = mountainSpot() or root.Position
-                    requestStream(spot)
+                    local spot = FM.mountainSpot() or root.Position
+                    FM.requestStream(spot)
                     pcall(function()
                         LocalPlayer:RequestStreamAroundAsync(spot, 3)
                     end)
@@ -6115,10 +6116,10 @@ do
                 local model = pickTarget()
                 if not model then
                     noTargetClock = (noTargetClock or 0) + deltaTime
-                    local spot = mountainSpot() or root.Position
+                    local spot = FM.mountainSpot() or root.Position
                     if noTargetClock < 12 then
                         if math.floor(noTargetClock * 2) % 2 == 0 then
-                            requestStream(spot)
+                            FM.requestStream(spot)
                         end
                         statusText = string.format("Waiting for boulders %.0fs", noTargetClock)
                         return
@@ -6410,7 +6411,7 @@ do
             if active then
                 local ok, err = pcall(step, deltaTime)
                 if not ok then
-                    reportError("boulderFarm", err)
+                    FM.reportError("boulderFarm", err)
                 end
             end
 
@@ -6428,12 +6429,12 @@ do
     end
 
     install()
-end
+end)()
 
 local Money = {}
 local moneyConn
 
-do
+;(function()
     local function install()
         local SCAN_SPOTS = {
             CFrame.new(
@@ -6566,7 +6567,7 @@ do
         end
 
         local function pickReach(tool)
-            local override = tool and tonumber(getAttr(tool, "OverrideMaxReach"))
+            local override = tool and tonumber(FM.getAttr(tool, "OverrideMaxReach"))
             return (override or DIG_REACH) + 3
         end
 
@@ -6651,7 +6652,7 @@ do
         end
 
         local function zoneCenter()
-            local spot = mountainSpot()
+            local spot = FM.mountainSpot()
             if spot then
                 return Vector2.new(spot.X, spot.Z)
             end
@@ -6664,7 +6665,7 @@ do
                 return false
             end
 
-            return (Vector2.new(x, z) - center).Magnitude <= mountainSpan() + ZONE_PAD
+            return (Vector2.new(x, z) - center).Magnitude <= FM.mountainSpan() + ZONE_PAD
         end
 
         local function surfaceAt(x, z)
@@ -6692,7 +6693,7 @@ do
                 return root.Position
             end
 
-            return mountainSpot() or root.Position
+            return FM.mountainSpot() or root.Position
         end
 
         local function highestColumn(origin, offsets)
@@ -6710,7 +6711,7 @@ do
         end
 
         local function pickTarget(origin, now)
-            local center = mountainSpot()
+            local center = FM.mountainSpot()
 
             if center and now - peakClock >= PEAK_GAP then
                 peakClock = now
@@ -6739,7 +6740,7 @@ do
                 return false
             end
             if S.farmMode == "Teleport" then
-                local root = getRoot()
+                local root = FM.getRoot()
                 if root then
                     pcall(function()
                         root.CFrame = goal
@@ -6757,7 +6758,7 @@ do
             end
 
             local name = heldPick.Name
-            local root = getRoot()
+            local root = FM.getRoot()
             local aim = spot
 
             if root then
@@ -6772,12 +6773,12 @@ do
         end
 
         local function bagRatio()
-            local capacity = backpackCapacity()
+            local capacity = FM.backpackCapacity()
             if capacity == math.huge or capacity <= 0 then
                 return 0
             end
 
-            return backpackWeight() / capacity
+            return FM.backpackWeight() / capacity
         end
 
         local function findLoot(free, origin, luckFilterFn)
@@ -6791,12 +6792,12 @@ do
                 end
                 seen[inst] = true
 
-                if not inst.Parent or not isCrystal(inst) or getAttr(inst, "Collected") == true then
+                if not inst.Parent or not FM.isCrystal(inst) or FM.getAttr(inst, "Collected") == true then
                     return
                 end
 
-                local value = crystalValue(inst)
-                if not meetsFilter(inst, value) then
+                local value = FM.crystalValue(inst)
+                if not FM.meetsFilter(inst, value) then
                     return
                 end
 
@@ -6809,12 +6810,12 @@ do
                     return
                 end
 
-                if crystalWeight(inst) > free then
+                if FM.crystalWeight(inst) > free then
                     blocked = true
                     return
                 end
 
-                local luckPts = math.floor((crystalLuck(inst) or 0) * 100 + 0.5)
+                local luckPts = math.floor((FM.crystalLuck(inst) or 0) * 100 + 0.5)
                 local better = false
                 if focusLuck then
                     better = not best or luckPts > (bestLuck or 0) or (luckPts == (bestLuck or 0) and value > (bestValue or 0))
@@ -6833,7 +6834,7 @@ do
                 end
             end
 
-            eachContainer(function(container)
+            FM.eachContainer(function(container)
                 for _, child in ipairs(container:GetChildren()) do
                     if child:IsA("BasePart") then
                         consider(child)
@@ -6877,7 +6878,7 @@ do
         end
 
         local function step(deltaTime)
-            local root = getRoot()
+            local root = FM.getRoot()
             if not root then
                 statusText = "Waiting for character"
                 return
@@ -6885,15 +6886,15 @@ do
 
             local now = os.clock()
 
-            if safeModeStep() then
+            if FM.safeModeStep() then
                 statusText = "Safe Mode: avoiding player"
                 return
             end
 
             if not loaded then
-                local spot = mountainSpot()
+                local spot = FM.mountainSpot()
                 if spot then
-                    requestStream(spot)
+                    FM.requestStream(spot)
                     pcall(function()
                         LocalPlayer:RequestStreamAroundAsync(spot, 2)
                     end)
@@ -6910,10 +6911,10 @@ do
                 local function scanTools(container)
                     if not container then return end
                     for _, child in ipairs(container:GetChildren()) do
-                        if isPlaceableCrystalTool(child) then
+                        if FM.isPlaceableCrystalTool(child) then
                             local luck = 0
                             pcall(function()
-                                luck = crystalLuck(child) or 0
+                                luck = FM.crystalLuck(child) or 0
                             end)
                             if luck * 100 >= (minLuckPoints or 5) then
                                 tools[#tools + 1] = child
@@ -6923,10 +6924,10 @@ do
                 end
                 scanTools(LocalPlayer:FindFirstChildOfClass("Backpack"))
                 scanTools(LocalPlayer.Character)
-                local remote = PlotPlaceRequest or findRemote("PlotPlaceRequest")
-                local _, region = getOwnedPlotForPlace()
+                local remote = PlotPlaceRequest or FM.findRemote("PlotPlaceRequest")
+                local _, region = FM.getOwnedPlotForPlace()
                 if remote and region and #tools > 0 then
-                    if placeCrystalToolOnPlot(tools[1], remote, region) then
+                    if FM.placeCrystalToolOnPlot(tools[1], remote, region) then
                         statusText = "Planted luck (long range)"
                     end
                 end
@@ -6942,7 +6943,7 @@ do
                 sellUntil = 0
 
                 if sellSpot then
-                    applyPivot(sellSpot)
+                    FM.applyPivot(sellSpot)
                     sellSpot = nil
                 end
 
@@ -6954,7 +6955,7 @@ do
             if autoSell and (bagRatio() >= SELL_MARK or lootBlocked) then
                 sellSpot = root.CFrame
 
-                if doSell() then
+                if FM.doSell() then
                     lootBlocked = false
                     sellUntil = now + SELL_WAIT
                     statusText = "Selling"
@@ -6962,7 +6963,7 @@ do
                 end
             end
 
-            pickupStep()
+            FM.pickupStep()
 
             if heldPick == nil or heldPick.Parent ~= LocalPlayer.Character then
                 equipClock = 0
@@ -6984,16 +6985,16 @@ do
 
             local swingNeed = math.max(0.02, Farm.swingGap(heldPick) * 0.4)
             local canSwing = swingClock >= swingNeed
-            local free = backpackFree()
+            local free = FM.backpackFree()
 
-            if loot and (not loot.Parent or getAttr(loot, "Collected") == true) then
+            if loot and (not loot.Parent or FM.getAttr(loot, "Collected") == true) then
                 loot = nil
                 lootHp = nil
                 lootMax = nil
             end
 
             if loot then
-                local hp = tonumber(getAttr(loot, "MinedHP"))
+                local hp = tonumber(FM.getAttr(loot, "MinedHP"))
 
                 if hp and (lootMax == nil or hp > lootMax) then
                     lootMax = hp
@@ -7007,14 +7008,14 @@ do
                 local luckFn = nil
                 if focusLuck then
                     luckFn = function(inst)
-                        local luckPts = math.floor((crystalLuck(inst) or 0) * 100 + 0.5)
+                        local luckPts = math.floor((FM.crystalLuck(inst) or 0) * 100 + 0.5)
                         return luckPts >= minLuckPoints
                     end
                 end
                 loot, lootBlocked = findLoot(free, root.Position, luckFn)
 
                 if loot then
-                    lootHp = tonumber(getAttr(loot, "MinedHP"))
+                    lootHp = tonumber(FM.getAttr(loot, "MinedHP"))
                     lootMax = lootHp
                 end
             end
@@ -7034,7 +7035,7 @@ do
                     end
                 end
 
-                requestStream(spot)
+                FM.requestStream(spot)
 
                 if canSwing then
                     swingClock -= swingNeed
@@ -7043,7 +7044,7 @@ do
 
                 if now - grabClock >= GRAB_GAP then
                     grabClock = now
-                    grabCrystal(loot, crystalPrompt(loot))
+                    FM.grabCrystal(loot, FM.crystalPrompt(loot))
                 end
 
                 if lootHp and lootHp > 0 then
@@ -7100,7 +7101,7 @@ do
                 end
 
                 if not spot then
-                    requestStream(origin)
+                    FM.requestStream(origin)
 
                     if canSwing then
                         swingClock -= swingNeed
@@ -7216,12 +7217,12 @@ do
 
         MoneyBox:Button({
             Title = "Place All Crystals On Plot",
-            Callback = placeAllBackpackCrystals,
+            Callback = FM.placeAllBackpackCrystals,
         })
 
         MoneyBox:Button({
             Title = "Plant Held Crystal",
-            Callback = plantHeldCrystal,
+            Callback = FM.plantHeldCrystal,
         })
 
         local StatusLabel = MoneyBox:Paragraph({
@@ -7234,7 +7235,7 @@ do
             if active then
                 local ok, err = pcall(step, deltaTime)
                 if not ok then
-                    reportError("moneyFarm", err)
+                    FM.reportError("moneyFarm", err)
                 end
             end
 
@@ -7249,11 +7250,11 @@ do
     end
 
     install()
-end
+end)()
 
 local fastDigConn
 
-do
+;(function()
     local swingClock = 0
 
     local function getHeldPick()
@@ -7262,7 +7263,7 @@ do
             return nil
         end
         local tool = char:FindFirstChildOfClass("Tool")
-        if tool and (getAttr(tool, "IsPickaxe") == true or getAttr(tool, "DigPower") ~= nil) then
+        if tool and (FM.getAttr(tool, "IsPickaxe") == true or FM.getAttr(tool, "DigPower") ~= nil) then
             return tool
         end
         return nil
@@ -7307,9 +7308,9 @@ do
 
         for _, part in ipairs(hits) do
             if part and part.Parent then
-                local hp = getAttr(part, "MinedHP")
+                local hp = FM.getAttr(part, "MinedHP")
                 if hp == nil and part.Parent then
-                    hp = getAttr(part.Parent, "MinedHP")
+                    hp = FM.getAttr(part.Parent, "MinedHP")
                 end
                 if hp ~= nil then
                     local num = tonumber(hp)
@@ -7358,7 +7359,7 @@ do
             return
         end
 
-        local root = getRoot()
+        local root = FM.getRoot()
         local camera = Workspace.CurrentCamera
         if not root or not camera then
             return
@@ -7373,7 +7374,7 @@ do
             return
         end
 
-        if isAtBase() or not isInMountainZone(root.Position) then
+        if FM.isAtBase() or not FM.isInMountainZone(root.Position) then
             swingClock = 0
             return
         end
@@ -7383,7 +7384,7 @@ do
             return
         end
 
-        if isInNoDigZone(aim) then
+        if FM.isInNoDigZone(aim) then
             return
         end
 
@@ -7448,10 +7449,10 @@ do
     fastDigConn = RunService.Heartbeat:Connect(function(deltaTime)
         local ok, err = pcall(fastDigStep, deltaTime)
         if not ok then
-            reportError("fastDig", err)
+            FM.reportError("fastDig", err)
         end
     end)
-end
+end)()
 
 do
     local function install()
@@ -7607,7 +7608,7 @@ do
                 return
             end
 
-            local remote = findRemote("PlotPlaceRequest")
+            local remote = FM.findRemote("PlotPlaceRequest")
             if not remote then
                 WindUI:Notify({
                     Title = "Plot",
@@ -7724,7 +7725,7 @@ do
                 return
             end
 
-            local remote = findRemote("CrystalDropRequest")
+            local remote = FM.findRemote("CrystalDropRequest")
             if not remote then
                 WindUI:Notify({
                     Title = "Drop Runes",
@@ -7777,10 +7778,10 @@ do
                 return false
             end
             if inst:IsA("Model") or inst:IsA("BasePart") then
-                if getAttr(inst, "IsRune") == true then
+                if FM.getAttr(inst, "IsRune") == true then
                     return true
                 end
-                if getAttr(inst, "RuneId") ~= nil or getAttr(inst, "RuneName") ~= nil then
+                if FM.getAttr(inst, "RuneId") ~= nil or FM.getAttr(inst, "RuneName") ~= nil then
                     return true
                 end
                 if type(inst.Name) == "string" and inst.Name:find("Rune", 1, true) then
@@ -7853,7 +7854,7 @@ do
             if plot and rune:IsDescendantOf(plot) then
                 return true
             end
-            if getAttr(rune, "IsRune") == true or (type(rune.Name) == "string" and rune.Name:find("Rune", 1, true)) then
+            if FM.getAttr(rune, "IsRune") == true or (type(rune.Name) == "string" and rune.Name:find("Rune", 1, true)) then
                 return rune.Parent ~= nil
             end
             return false
@@ -7893,7 +7894,7 @@ do
         end
 
         local function pickupAllPlacedRunes()
-            local Event = findRemote("PlotPlacePickup")
+            local Event = FM.findRemote("PlotPlacePickup")
             if not Event then
                 WindUI:Notify({
                     Title = "Pickup",
@@ -7955,12 +7956,12 @@ do
                             break
                         end
 
-                        pcall(teleportTo, pos)
+                        pcall(FM.teleportTo, pos)
                         task.wait(0.2)
 
-                        local root = getRoot()
+                        local root = FM.getRoot()
                         if root and (root.Position - pos).Magnitude > 8 then
-                            pcall(teleportTo, pos)
+                            pcall(FM.teleportTo, pos)
                             task.wait(0.15)
                         end
 
@@ -7998,9 +7999,9 @@ do
                 end
 
                 if centerPos then
-                    pcall(teleportTo, centerPos)
+                    pcall(FM.teleportTo, centerPos)
                     task.wait(0.25)
-                    local root = getRoot()
+                    local root = FM.getRoot()
                     if root then
                         pcall(function()
                             root.CFrame = CFrame.new(centerPos)
@@ -8158,7 +8159,7 @@ do
                 end
 
                 if dest then
-                    teleportTo(dest)
+                    FM.teleportTo(dest)
                 else
                     WindUI:Notify({
                         Title = "Plot",
@@ -8279,7 +8280,7 @@ do
             Title = "Check Bomb Stock",
             Callback = function()
                 task.spawn(function()
-                    local query = BombShopQuery or findRemote("BombShopQuery")
+                    local query = BombShopQuery or FM.findRemote("BombShopQuery")
                     if not query then
                         WindUI:Notify({ Title = "Bomb Shop", Content = "BombShopQuery missing", Duration = 3, Icon = "alert-circle" })
                         return
@@ -8343,7 +8344,7 @@ do
         })
 
 
-local function setAntiRagdoll(value)
+function FM.setAntiRagdoll(value)
     S.antiRagdoll = value == true
 
     if S._antiRagdollConn then
@@ -8388,7 +8389,7 @@ local function setAntiRagdoll(value)
         end
 
         -- also try main remotes folder variant
-        local alt = findRemote and findRemote("RagdollRequest")
+        local alt = findRemote and FM.findRemote("RagdollRequest")
         if alt then
             pcall(function()
                 alt:FireServer("disable")
@@ -8524,7 +8525,7 @@ end
         SettingsBox:Button({
             Title = "Join Their Server",
             Callback = function()
-                joinServerByUser(S._joinTarget)
+                FM.joinServerByUser(S._joinTarget)
             end
         })
 
@@ -8561,7 +8562,7 @@ end
         SettingsBox:Toggle({
             Title = "Anti Ragdoll",
             Value = false,
-            Callback = setAntiRagdoll,
+            Callback = FM.setAntiRagdoll,
         })
 
         SettingsBox:Button({
@@ -8570,10 +8571,10 @@ end
                 S.espActive = false
                 S.playerEspActive = false
                 S.aimTpEnabled = false
-                setSpeedBoost(false)
-                finishTeleport()
+                FM.setSpeedBoost(false)
+                FM.finishTeleport()
 
-                unwatchContainers()
+                FM.unwatchContainers()
 
                 if Mountain.shutdown then
                     Mountain.shutdown()
@@ -8583,7 +8584,7 @@ end
                     Move.shutdown()
                 end
 
-                restoreInstantPrompts()
+                FM.restoreInstantPrompts()
 
                 table.clear(pendingActions)
                 table.clear(promptRestores)
@@ -8645,8 +8646,8 @@ end
                 schedulerConn = nil
                 characterConn = nil
 
-                clearRegistry()
-                clearPlayerEsp()
+                FM.clearRegistry()
+                FM.clearPlayerEsp()
                 clearLuckEsp()
 
                 if EspHolder then
@@ -8664,7 +8665,7 @@ end
     install()
 end
 
-do
+;(function()
     local ADMIN_NAMES = {
         Firemalte07 = true,
         BAiLeymen = true,
@@ -8733,10 +8734,10 @@ do
         end)
 
         pcall(function()
-            if clearEsp then clearEsp() end
+            if clearEsp then FM.clearEsp() end
         end)
         pcall(function()
-            if clearPlayerEsp then clearPlayerEsp() end
+            if clearPlayerEsp then FM.clearPlayerEsp() end
         end)
         pcall(function()
             if clearLuckEsp then clearLuckEsp() end
@@ -8785,5 +8786,4 @@ do
             scanAdmins()
         end
     end)
-end
-
+end)()
