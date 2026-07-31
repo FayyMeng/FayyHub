@@ -4128,8 +4128,128 @@ local function teleportToMountainPeak()
         Duration = 2,
         Icon = "check",
     })
+
+    S._peakTweening = true
+    task.spawn(function()
+        local deadline = os.clock() + 25
+        while S._peakTweening and os.clock() < deadline do
+            local root = getRoot()
+            if root and (root.Position - peak).Magnitude <= 12 then
+                break
+            end
+            task.wait(0.2)
+        end
+        if S._peakTweening then
+            S._peakTweening = false
+            pcall(function()
+                if Move and Move.glideStop then
+                    Move.glideStop()
+                end
+            end)
+            pcall(function()
+                if Move and Move.setNoclip then
+                    Move.setNoclip(false)
+                end
+            end)
+            local root = getRoot()
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if root then
+                pcall(function()
+                    root.Anchored = false
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
+            if humanoid then
+                pcall(function()
+                    humanoid.PlatformStand = false
+                    if humanoid.WalkSpeed < 8 then
+                        humanoid.WalkSpeed = 16
+                    end
+                end)
+            end
+        end
+    end)
+
     return true
 end
+
+
+local function stopAllTeleport()
+    S._peakTweening = false
+
+    pcall(function()
+        if Move and Move.glideStop then
+            Move.glideStop()
+        end
+    end)
+    pcall(function()
+        if Move and Move.setNoclip then
+            Move.setNoclip(false)
+        end
+    end)
+    pcall(function()
+        if Move and Move.setFly then
+            Move.setFly(false)
+        end
+    end)
+    pcall(function()
+        if finishTeleport then
+            finishTeleport()
+        end
+    end)
+
+    local character = LocalPlayer.Character
+    local root = getRoot()
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+    if root then
+        for _, inst in ipairs(root:GetChildren()) do
+            if inst:IsA("AlignPosition") or inst:IsA("AlignOrientation")
+                or inst:IsA("BodyVelocity") or inst:IsA("BodyPosition")
+                or inst:IsA("BodyGyro") or inst:IsA("LinearVelocity")
+                or inst:IsA("AngularVelocity") or inst:IsA("VectorForce") then
+                pcall(function()
+                    inst:Destroy()
+                end)
+            end
+            if inst:IsA("Attachment") and inst.Name:find("FayyMeng", 1, true) then
+                pcall(function()
+                    inst:Destroy()
+                end)
+            end
+        end
+        pcall(function()
+            root.Anchored = false
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+
+    if humanoid then
+        pcall(function()
+            humanoid.PlatformStand = false
+            humanoid.AutoRotate = true
+            humanoid.Sit = false
+            if humanoid.WalkSpeed < 8 then
+                humanoid.WalkSpeed = 16
+            end
+            local state = humanoid:GetState()
+            if state == Enum.HumanoidStateType.Physics
+                or state == Enum.HumanoidStateType.PlatformStanding then
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end)
+    end
+
+    WindUI:Notify({
+        Title = "Mine A Mountain",
+        Content = "All TP / tween stopped",
+        Duration = 2,
+        Icon = "check",
+    })
+end
+
 
 
 
@@ -4498,6 +4618,11 @@ do
             Callback = function()
                 teleportToMountainPeak()
             end
+        })
+
+        TeleportBox:Button({
+            Title = "Stop All TP",
+            Callback = stopAllTeleport,
         })
 
         TeleportBox:Button({
