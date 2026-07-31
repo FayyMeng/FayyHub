@@ -170,8 +170,10 @@ local PICK = {
     retry = 0.35,
     forget = 5,
     pad = 4,
-    instantRadius = 90,
-    instantTick = 0.6,
+    instantRadius = 40,
+    instantTick = 1.25,
+    instantMaxParts = 40,
+    instantMaxPatch = 12,
     -- Legit = original slow one-by-one (before burst was added)
     legitCooldown = 0.12,
     legitBurst = 1,
@@ -2336,48 +2338,81 @@ function FM.refreshInstantPrompts()
         return
     end
 
+    -- cleanup dead prompts (cheap)
     for prompt in pairs(S.instantPatched) do
         if not prompt.Parent then
             S.instantPatched[prompt] = nil
         end
     end
 
-    -- Patch ALL nearby ProximityPrompts (crystals, runes, shops, etc.)
-    local radius = PICK.instantRadius or 90
-    local params = OverlapParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
-    pcall(function()
-        params.MaxParts = 80
-    end)
+    local radius = PICK.instantRadius or 40
+    local maxParts = PICK.instantMaxParts or 40
+    local maxPatch = PICK.instantMaxPatch or 12
+    local patched = 0
 
-    local ok, parts = pcall(function()
-        return Workspace:GetPartBoundsInRadius(root.Position, radius, params)
-    end)
+    local function tryPatchFrom(obj)
+        if patched >= maxPatch then
+            return
+        end
+        if not obj then
+            return
+        end
+        -- single lookup, no full GetChildren scan
+        local prompt = obj:FindFirstChildOfClass("ProximityPrompt")
+        if not prompt then
+            prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", false)
+        end
+        if prompt and not S.instantPatched[prompt] and not promptRestores[prompt] then
+            FM.instantPromptPatch(prompt)
+            patched += 1
+        end
+    end
 
-    local seen = {}
-    if ok and parts then
-        for _, part in ipairs(parts) do
-            if part and part.Parent then
-                for _, inst in ipairs(part:GetChildren()) do
-                    if inst:IsA("ProximityPrompt") and not seen[inst] then
-                        seen[inst] = true
-                        FM.instantPromptPatch(inst)
-                    end
-                end
-                local parent = part.Parent
-                if parent and parent ~= Workspace then
-                    for _, inst in ipairs(parent:GetChildren()) do
-                        if inst:IsA("ProximityPrompt") and not seen[inst] then
-                            seen[inst] = true
-                            FM.instantPromptPatch(inst)
-                        end
-                    end
+    -- 1) Prefer crystal registry nearby (very cheap, no world query)
+    local origin = root.Position
+    for inst in pairs(S.registry) do
+        if patched >= maxPatch then
+            break
+        end
+        if inst and inst.Parent and inst:IsA("BasePart") then
+            local dist = (inst.Position - origin).Magnitude
+            if dist <= radius then
+                tryPatchFrom(inst)
+                if inst.Parent and inst.Parent ~= Workspace then
+                    tryPatchFrom(inst.Parent)
                 end
             end
         end
     end
 
+    -- 2) Light world scan only if we still have patch budget
+    if patched < maxPatch then
+        local params = OverlapParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
+        pcall(function()
+            params.MaxParts = maxParts
+        end)
+
+        local ok, parts = pcall(function()
+            return Workspace:GetPartBoundsInRadius(origin, radius, params)
+        end)
+
+        if ok and parts then
+            for _, part in ipairs(parts) do
+                if patched >= maxPatch then
+                    break
+                end
+                if part and part.Parent then
+                    tryPatchFrom(part)
+                    local parent = part.Parent
+                    if parent and parent ~= Workspace and parent ~= LocalPlayer.Character then
+                        tryPatchFrom(parent)
+                    end
+                end
+            end
+        end
+    end
 end
 
 
