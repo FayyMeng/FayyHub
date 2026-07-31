@@ -5,6 +5,8 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local FM = {}
+
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
@@ -106,7 +108,6 @@ local BombBuyRequest = FM.findRemote("BombBuyRequest")
 local BombShopRestocked = FM.findRemote("BombShopRestocked")
 local PlotPlaceRequest = FM.findRemote("PlotPlaceRequest")
 
-local FM = {}
 
 local ESP = {
     font = Enum.Font.GothamBold,
