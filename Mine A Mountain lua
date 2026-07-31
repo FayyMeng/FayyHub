@@ -104,8 +104,8 @@ local ToggleFavorite = findRemote("ToggleFavorite")
 
 local ESP = {
     font = Enum.Font.GothamBold,
-    sweep = 0.7,
-    budget = 0.004,
+    sweep = 1.25,
+    budget = 0.0025,
     offset = Vector3.new(0, 3.4, 0),
     width = 220,
     height = 50,
@@ -127,10 +127,10 @@ local PLAYER = {
 local PACE = {
     boost = 35,
     normal = 16,
-    stats = 0.5,
-    distance = 0.2,
-    playerEsp = 0.25,
-    pickup = 0.08,
+    stats = 0.75,
+    distance = 0.4,
+    playerEsp = 0.5,
+    pickup = 1.2,
 }
 
 local TP = {
@@ -157,14 +157,14 @@ local PICK = {
     aimRange = 5000,
     aimDot = 0.995,
     range = 13,
-    cooldown = 0.06,
-    restore = 0.2,
-    burst = 6,
-    retry = 0.15,
+    cooldown = 1.2,
+    restore = 0.25,
+    burst = 1,
+    retry = 0.35,
     forget = 5,
     pad = 4,
-    instantRadius = 60,
-    instantTick = 0.25,
+    instantRadius = 90,
+    instantTick = 0.6,
 }
 
 local COLORS = {
@@ -2005,12 +2005,12 @@ local function refreshInstantPrompts()
     end
 
     -- Patch ALL nearby ProximityPrompts (crystals, runes, shops, etc.)
-    local radius = (PICK.instantRadius or 25) + 20
+    local radius = PICK.instantRadius or 90
     local params = OverlapParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
     pcall(function()
-        params.MaxParts = 200
+        params.MaxParts = 80
     end)
 
     local ok, parts = pcall(function()
@@ -2040,30 +2040,6 @@ local function refreshInstantPrompts()
         end
     end
 
-    -- Also scan ProximityPromptService registered prompts near player
-    pcall(function()
-        local pps = game:GetService("ProximityPromptService")
-        -- fallback: scan Things folder prompts within radius
-        local things = Workspace:FindFirstChild("Things")
-        if things then
-            for _, desc in ipairs(things:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and not seen[desc] then
-                    local parent = desc.Parent
-                    local pos = parent and parent:IsA("BasePart") and parent.Position
-                    if not pos and parent and parent:IsA("Model") then
-                        local ok2, pivot = pcall(function()
-                            return parent:GetPivot().Position
-                        end)
-                        pos = ok2 and pivot or nil
-                    end
-                    if pos and (pos - root.Position).Magnitude <= radius then
-                        seen[desc] = true
-                        instantPromptPatch(desc)
-                    end
-                end
-            end
-        end
-    end)
 end
 
 
@@ -2143,7 +2119,7 @@ local function dropAllCrystals()
                 pcall(function()
                     humanoid:EquipTool(tool)
                 end)
-                task.wait(0.12)
+                task.wait(0.05)
             end
 
             local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
@@ -2155,7 +2131,7 @@ local function dropAllCrystals()
             if ok then
                 dropped += 1
             end
-            task.wait(0.25)
+            task.wait(0.08)
         end
 
         S._droppingCrystals = false
@@ -2187,7 +2163,7 @@ local function pickupAllDroppedCrystals()
         params.FilterType = Enum.RaycastFilterType.Exclude
         params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
         pcall(function()
-            params.MaxParts = 250
+            params.MaxParts = 100
         end)
 
         local ok, parts = pcall(function()
@@ -2240,7 +2216,7 @@ local function pickupAllDroppedCrystals()
             elseif prompt and firePrompt(prompt) then
                 picked += 1
             end
-            task.wait(0.12)
+            task.wait(1.2)
         end
 
         S._pickingDropped = false
@@ -2385,20 +2361,24 @@ local function tryFilteredCrystalPickup(origin, free)
         return false
     end
 
-    local list = pickupCandidates(free, origin)
+    local now = os.clock()
+    if now - (S.lastFilteredPickup or 0) < 1.2 then
+        return false
+    end
+
+    -- Cache candidate scan (avoids heavy overlap every call)
+    local list = S._filterCandCache
+    if not list or now - (S._filterCandAt or 0) > 1.0 then
+        list = pickupCandidates(free, origin)
+        S._filterCandCache = list
+        S._filterCandAt = now
+    end
     if not list or #list == 0 then
         return false
     end
 
-    local budget = free
-    local grabs = 0
-    local now = os.clock()
-
     for _, entry in ipairs(list) do
-        if grabs >= PICK.burst then
-            break
-        end
-        if entry.weight <= budget and budget > 0 then
+        if entry.weight <= free then
             local okValue = not S.pickupValueActive or entry.value >= (S.pickupMinValue or 0)
             local okLuck = true
             if S.pickupLuckActive then
@@ -2409,14 +2389,16 @@ local function tryFilteredCrystalPickup(origin, free)
             if okValue and okLuck then
                 claimed[entry.inst] = now
                 if grabCrystal(entry.inst, entry.prompt) then
-                    budget -= entry.weight
-                    grabs += 1
+                    S.lastFilteredPickup = now
+                    S.lastPickup = now
+                    S._filterCandCache = nil
+                    return true
                 end
             end
         end
     end
 
-    return grabs > 0
+    return false
 end
 
 local function updateBackpackLabel()
@@ -5875,7 +5857,7 @@ do
 
             if S.pickupValueActive or S.pickupLuckActive then
                 filterPickClock = (filterPickClock or 0) + deltaTime
-                if filterPickClock >= 0.12 then
+                if filterPickClock >= 1.2 then
                     filterPickClock = 0
                     local free = backpackFree()
                     if free > 0 and tryFilteredCrystalPickup(root.Position, free) then
@@ -7931,6 +7913,10 @@ local function setAntiRagdoll(value)
         S._antiRagdollCharConn:Disconnect()
         S._antiRagdollCharConn = nil
     end
+    if S._antiRagdollStateConn then
+        S._antiRagdollStateConn:Disconnect()
+        S._antiRagdollStateConn = nil
+    end
 
     if not S.antiRagdoll then
         return
@@ -8023,6 +8009,23 @@ local function setAntiRagdoll(value)
             end
         end)
 
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            if S._antiRagdollStateConn then
+                S._antiRagdollStateConn:Disconnect()
+            end
+            S._antiRagdollStateConn = humanoid.StateChanged:Connect(function(_, newState)
+                if not S.antiRagdoll then
+                    return
+                end
+                if newState == Enum.HumanoidStateType.Physics
+                    or newState == Enum.HumanoidStateType.Ragdoll
+                    or newState == Enum.HumanoidStateType.FallingDown then
+                    forceUnragdoll()
+                end
+            end)
+        end
+
         if character:GetAttribute("Ragdolled") then
             forceUnragdoll()
         end
@@ -8037,7 +8040,7 @@ local function setAntiRagdoll(value)
             return
         end
         clock += dt
-        if clock < 0.15 then
+        if clock < 0.05 then
             return
         end
         clock = 0
