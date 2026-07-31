@@ -2003,46 +2003,245 @@ local function refreshInstantPrompts()
         end
     end
 
-    -- Crystals
-    local hits = nearbyCrystalParts(root.Position, PICK.instantRadius)
-    if hits then
-        for _, part in ipairs(hits) do
-            if isCrystal(part) and getAttr(part, "Collected") ~= true then
-                local prompt = crystalPrompt(part)
-                if prompt then
-                    instantPromptPatch(prompt)
-                end
-            end
-        end
-    end
-
-    -- Runes (works even if Auto Rune Pickup is off)
-    local radius = (PICK.instantRadius or 25) + 10
+    -- Patch ALL nearby ProximityPrompts (crystals, runes, shops, etc.)
+    local radius = (PICK.instantRadius or 25) + 20
     local params = OverlapParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
     pcall(function()
-        params.MaxParts = 80
+        params.MaxParts = 200
     end)
 
     local ok, parts = pcall(function()
         return Workspace:GetPartBoundsInRadius(root.Position, radius, params)
     end)
+
+    local seen = {}
     if ok and parts then
         for _, part in ipairs(parts) do
-            local owner = part
-            if part:IsA("BasePart") and part.Parent and (part.Parent:IsA("Model") or isRuneLike(part.Parent)) then
-                owner = part.Parent
-            end
-            if isRuneLike(owner) or isRuneLike(part) then
-                local prompt = part:FindFirstChildWhichIsA("ProximityPrompt")
-                    or (owner and owner:FindFirstChildWhichIsA("ProximityPrompt", true))
-                if prompt then
-                    instantPromptPatch(prompt)
+            if part and part.Parent then
+                for _, inst in ipairs(part:GetChildren()) do
+                    if inst:IsA("ProximityPrompt") and not seen[inst] then
+                        seen[inst] = true
+                        instantPromptPatch(inst)
+                    end
+                end
+                local parent = part.Parent
+                if parent and parent ~= Workspace then
+                    for _, inst in ipairs(parent:GetChildren()) do
+                        if inst:IsA("ProximityPrompt") and not seen[inst] then
+                            seen[inst] = true
+                            instantPromptPatch(inst)
+                        end
+                    end
                 end
             end
         end
     end
+
+    -- Also scan ProximityPromptService registered prompts near player
+    pcall(function()
+        local pps = game:GetService("ProximityPromptService")
+        -- fallback: scan Things folder prompts within radius
+        local things = Workspace:FindFirstChild("Things")
+        if things then
+            for _, desc in ipairs(things:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") and not seen[desc] then
+                    local parent = desc.Parent
+                    local pos = parent and parent:IsA("BasePart") and parent.Position
+                    if not pos and parent and parent:IsA("Model") then
+                        local ok2, pivot = pcall(function()
+                            return parent:GetPivot().Position
+                        end)
+                        pos = ok2 and pivot or nil
+                    end
+                    if pos and (pos - root.Position).Magnitude <= radius then
+                        seen[desc] = true
+                        instantPromptPatch(desc)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+
+local function isBackpackCrystalTool(tool)
+    if not tool or not tool:IsA("Tool") then
+        return false
+    end
+    -- crystals have Tier + WeightKg; exclude pure runes-only if no Tier
+    if getAttr(tool, "Tier") ~= nil and getAttr(tool, "WeightKg") ~= nil then
+        return true
+    end
+    if getAttr(tool, "Value") ~= nil and getAttr(tool, "WeightKg") ~= nil then
+        return true
+    end
+    return false
+end
+
+local function collectBackpackCrystals()
+    local list = {}
+    local function scan(container)
+        if not container then
+            return
+        end
+        for _, child in ipairs(container:GetChildren()) do
+            if isBackpackCrystalTool(child) then
+                list[#list + 1] = child
+            end
+        end
+    end
+    scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+    scan(LocalPlayer.Character)
+    return list
+end
+
+local function dropAllCrystals()
+    local remote = findRemote("CrystalDropRequest")
+    if not remote then
+        WindUI:Notify({
+            Title = "Drop Crystals",
+            Content = "CrystalDropRequest missing",
+            Duration = 3,
+            Icon = "alert-circle",
+        })
+        return
+    end
+
+    local crystals = collectBackpackCrystals()
+    if #crystals == 0 then
+        WindUI:Notify({
+            Title = "Drop Crystals",
+            Content = "No crystals in backpack",
+            Duration = 2,
+            Icon = "alert-circle",
+        })
+        return
+    end
+
+    if S._droppingCrystals then
+        return
+    end
+    S._droppingCrystals = true
+
+    task.spawn(function()
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        local dropped = 0
+
+        for _, tool in ipairs(crystals) do
+            if not tool or not tool.Parent then
+                continue
+            end
+
+            if humanoid and tool.Parent ~= LocalPlayer.Character then
+                pcall(function()
+                    humanoid:EquipTool(tool)
+                end)
+                task.wait(0.12)
+            end
+
+            local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
+            local name = (held and held.Name) or tool.Name
+
+            local ok = pcall(function()
+                remote:FireServer(name)
+            end)
+            if ok then
+                dropped += 1
+            end
+            task.wait(0.25)
+        end
+
+        S._droppingCrystals = false
+        WindUI:Notify({
+            Title = "Drop Crystals",
+            Content = string.format("Dropped %d", dropped),
+            Duration = 2,
+            Icon = dropped > 0 and "check" or "alert-circle",
+        })
+    end)
+end
+
+local function pickupAllDroppedCrystals()
+    local root = getRoot()
+    if not root then
+        return
+    end
+
+    -- Player-dropped crystals can still be picked even when backpack is full
+    if S._pickingDropped then
+        return
+    end
+    S._pickingDropped = true
+
+    task.spawn(function()
+        local radius = 80
+        local params = OverlapParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
+        pcall(function()
+            params.MaxParts = 250
+        end)
+
+        local ok, parts = pcall(function()
+            return Workspace:GetPartBoundsInRadius(root.Position, radius, params)
+        end)
+
+        local targets = {}
+        local seen = {}
+        if ok and parts then
+            for _, part in ipairs(parts) do
+                if isCrystal(part) and getAttr(part, "Collected") ~= true and not seen[part] then
+                    seen[part] = true
+                    targets[#targets + 1] = part
+                end
+            end
+        end
+
+        -- also scan common drop folders
+        for _, folderName in ipairs({ "DroppedCrystals", "Crystals", "Things" }) do
+            local folder = Workspace:FindFirstChild(folderName)
+            if folder then
+                for _, child in ipairs(folder:GetDescendants()) do
+                    if isCrystal(child) and getAttr(child, "Collected") ~= true and not seen[child] then
+                        local pos = child:IsA("BasePart") and child.Position
+                        if pos and (pos - root.Position).Magnitude <= radius then
+                            seen[child] = true
+                            targets[#targets + 1] = child
+                        end
+                    end
+                end
+            end
+        end
+
+        local picked = 0
+        for _, crystal in ipairs(targets) do
+            if not crystal.Parent or getAttr(crystal, "Collected") == true then
+                continue
+            end
+
+            -- No teleport (less suspicious) — only fire nearby prompts
+            local prompt = crystalPrompt(crystal)
+            if prompt then
+                instantPromptPatch(prompt)
+            end
+            if grabCrystal and grabCrystal(crystal, prompt) then
+                picked += 1
+            elseif prompt and firePrompt(prompt) then
+                picked += 1
+            end
+            task.wait(0.12)
+        end
+
+        S._pickingDropped = false
+        WindUI:Notify({
+            Title = "Pickup Crystals",
+            Content = string.format("Picked %d nearby", picked),
+            Duration = 2,
+            Icon = picked > 0 and "check" or "alert-circle",
+        })
+    end)
 end
 
 local function setInstantPrompt(value)
@@ -4100,6 +4299,16 @@ do
             Title = "Instant Prompt",
             Value = false,
             Callback = setInstantPrompt
+        })
+
+        PickupBox:Button({
+            Title = "Drop All Crystals",
+            Callback = dropAllCrystals,
+        })
+
+        PickupBox:Button({
+            Title = "Pickup All Dropped Crystals",
+            Callback = pickupAllDroppedCrystals,
         })
 
         PickupBox:Toggle({
