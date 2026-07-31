@@ -760,8 +760,6 @@ local function plantHeldCrystal()
     end)
 end
 
-}
-
 local function meetsFilter(inst, value)
     if S.valueFilter then
         if (value or crystalValue(inst)) < S.minValue then
