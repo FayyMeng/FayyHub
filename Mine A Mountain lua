@@ -180,34 +180,6 @@ local PICK = {
     burstBurst = 8,
 }
 
-function FM.getPickupTiming()
-    if S.pickupMode == "Burst" then
-        return PICK.burstCooldown, PICK.burstBurst
-    end
-    return PICK.legitCooldown, PICK.legitBurst
-end
-
--- Shared filter for value / luck toggles (used by both Legit & Burst)
-function FM.valueLuckFilter(inst)
-    if not inst then
-        return false
-    end
-    if S.pickupValueActive then
-        local value = FM.crystalValue(inst)
-        if value < (S.pickupMinValue or 0) then
-            return false
-        end
-    end
-    if S.pickupLuckActive then
-        local ok, luck = pcall(FM.crystalLuck, inst)
-        local luckPct = (ok and luck or 0) * 100
-        if luckPct < (S.pickupMinLuck or 0) then
-            return false
-        end
-    end
-    return true
-end
-
 local COLORS = {
     money = Color3.fromRGB(60, 255, 90),
     default = Color3.fromRGB(0, 225, 255),
@@ -351,6 +323,35 @@ local S = {
     StatsLabel          = nil,
     BackpackLabel       = nil,
 }
+
+function FM.getPickupTiming()
+    local mode = (S and S.pickupMode) or "Legit"
+    if mode == "Burst" then
+        return PICK.burstCooldown, PICK.burstBurst
+    end
+    return PICK.legitCooldown, PICK.legitBurst
+end
+
+-- Shared filter for value / luck toggles (used by both Legit & Burst)
+function FM.valueLuckFilter(inst)
+    if not inst or not S then
+        return false
+    end
+    if S.pickupValueActive then
+        local value = FM.crystalValue(inst)
+        if value < (S.pickupMinValue or 0) then
+            return false
+        end
+    end
+    if S.pickupLuckActive then
+        local ok, luck = pcall(FM.crystalLuck, inst)
+        local luckPct = (ok and luck or 0) * 100
+        if luckPct < (S.pickupMinLuck or 0) then
+            return false
+        end
+    end
+    return true
+end
 
 function FM.reportError(context, err)
     local now = os.clock()
@@ -2867,7 +2868,7 @@ local schedulerConn = RunService.Heartbeat:Connect(function(deltaTime)
         S._pickupAcc = (S._pickupAcc or 0) + deltaTime
         local tickRate = PACE.pickup or 0.08
         if S.pickupValueActive or S.pickupLuckActive then
-            tickRate = (S.pickupMode == "Burst") and 0.04 or 0.1
+            tickRate = ((S.pickupMode or "Legit") == "Burst") and 0.04 or 0.1
         end
         if S._pickupAcc >= tickRate then
             S._pickupAcc = 0
@@ -6215,7 +6216,7 @@ do
 
             if S.pickupValueActive or S.pickupLuckActive then
                 filterPickClock = (filterPickClock or 0) + deltaTime
-                local filterTick = (S.pickupMode == "Burst") and 0.04 or 0.12
+                local filterTick = ((S.pickupMode or "Legit") == "Burst") and 0.04 or 0.12
                 if filterPickClock >= filterTick then
                     filterPickClock = 0
                     local free = FM.backpackFree()
