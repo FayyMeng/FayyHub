@@ -317,7 +317,8 @@ local S = {
     pickupLuckActive    = false,
     pickupMinValue      = 0,
     pickupMinLuck       = 0,
-    pickupMode          = "Legit", -- "Legit" | "Burst"
+    pickupMode          = "Legit", -- "Legit" | "Burst" (global: value/luck + drop + pickup dropped)
+    recentDrops         = {}, -- fingerprints of crystals we dropped (for safe re-pickup)
     autoBuyBombs        = false,
     focusLuck           = false,
     minLuckPoints       = 10,
@@ -332,6 +333,27 @@ function FM.getPickupTiming()
         return PICK.burstCooldown, PICK.burstBurst
     end
     return PICK.legitCooldown, PICK.legitBurst
+end
+
+-- Global timing for drop / pickup-dropped ops (Legit vs Burst)
+function FM.getDropPickupTiming()
+    local mode = (S and S.pickupMode) or "Legit"
+    if mode == "Burst" then
+        return {
+            dropEquip = 0.03,
+            dropGap = 0.03,
+            pickGap = 0.05,
+            pickBurst = 8,
+            pickRadius = 55,
+        }
+    end
+    return {
+        dropEquip = 0.06,
+        dropGap = 0.1,
+        pickGap = 0.28,
+        pickBurst = 2,
+        pickRadius = 45,
+    }
 end
 
 -- Shared filter for value / luck toggles (used by both Legit & Burst)
@@ -353,6 +375,72 @@ function FM.valueLuckFilter(inst)
         end
     end
     return true
+end
+
+-- Fingerprint so we only re-pick crystals WE dropped
+function FM.crystalFingerprint(inst)
+    if not inst then
+        return nil
+    end
+    local value = FM.crystalValue(inst)
+    local weight = FM.crystalWeight(inst)
+    local tier = FM.crystalTier(inst)
+    local name = tostring(FM.crystalName(inst) or inst.Name or "")
+    local mut = tostring(FM.getAttr(inst, "Mutation") or "")
+    return string.format("%s|%.4f|%.4f|%d|%s", name, value, weight, tier, mut)
+end
+
+function FM.rememberDroppedCrystal(toolOrInst)
+    if not S.recentDrops then
+        S.recentDrops = {}
+    end
+    local fp = FM.crystalFingerprint(toolOrInst)
+    if not fp then
+        return
+    end
+    S.recentDrops[#S.recentDrops + 1] = {
+        fp = fp,
+        at = os.clock(),
+        value = FM.crystalValue(toolOrInst),
+        weight = FM.crystalWeight(toolOrInst),
+        name = tostring(FM.crystalName(toolOrInst) or ""),
+    }
+    -- keep last 80 only
+    while #S.recentDrops > 80 do
+        table.remove(S.recentDrops, 1)
+    end
+end
+
+function FM.isOurRecentDrop(inst, maxAge)
+    maxAge = maxAge or 120
+    if not inst or not S.recentDrops or #S.recentDrops == 0 then
+        return false
+    end
+    local now = os.clock()
+    local fp = FM.crystalFingerprint(inst)
+    if not fp then
+        return false
+    end
+    for i = #S.recentDrops, 1, -1 do
+        local entry = S.recentDrops[i]
+        if now - entry.at > maxAge then
+            table.remove(S.recentDrops, i)
+        elseif entry.fp == fp then
+            return true
+        end
+    end
+    return false
+end
+
+function FM.isInDroppedFolder(inst)
+    local p = inst
+    while p do
+        if p.Name == "DroppedCrystals" then
+            return true
+        end
+        p = p.Parent
+    end
+    return false
 end
 
 function FM.reportError(context, err)
@@ -2477,6 +2565,7 @@ function FM.dropAllCrystals()
     S._stopCrystalOps = false
 
     task.spawn(function()
+        local timing = FM.getDropPickupTiming()
         local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         local dropped = 0
 
@@ -2488,11 +2577,14 @@ function FM.dropAllCrystals()
                 continue
             end
 
+            -- remember fingerprint BEFORE drop so pickup can validate
+            FM.rememberDroppedCrystal(tool)
+
             if humanoid and tool.Parent ~= LocalPlayer.Character then
                 pcall(function()
                     humanoid:EquipTool(tool)
                 end)
-                task.wait(0.05)
+                task.wait(timing.dropEquip)
             end
 
             local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(tool.Name)
@@ -2504,13 +2596,13 @@ function FM.dropAllCrystals()
             if ok then
                 dropped += 1
             end
-            task.wait(0.08)
+            task.wait(timing.dropGap)
         end
 
         S._droppingCrystals = false
         WindUI:Notify({
             Title = "Drop Crystals",
-            Content = string.format("Dropped %d", dropped),
+            Content = string.format("Dropped %d (%s)", dropped, S.pickupMode or "Legit"),
             Duration = 2,
             Icon = dropped > 0 and "check" or "alert-circle",
         })
@@ -2523,7 +2615,6 @@ function FM.pickupAllDroppedCrystals()
         return
     end
 
-    -- Player-dropped crystals can still be picked even when backpack is full
     if S._pickingDropped then
         return
     end
@@ -2531,71 +2622,115 @@ function FM.pickupAllDroppedCrystals()
     S._stopCrystalOps = false
 
     task.spawn(function()
-        local radius = 80
-        local params = OverlapParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = { LocalPlayer.Character or LocalPlayer }
-        pcall(function()
-            params.MaxParts = 100
-        end)
-
-        local ok, parts = pcall(function()
-            return Workspace:GetPartBoundsInRadius(root.Position, radius, params)
-        end)
-
+        local timing = FM.getDropPickupTiming()
+        local radius = timing.pickRadius
+        local origin = root.Position
         local targets = {}
         local seen = {}
-        if ok and parts then
-            for _, part in ipairs(parts) do
-                if FM.isCrystal(part) and FM.getAttr(part, "Collected") ~= true and not seen[part] then
-                    seen[part] = true
-                    targets[#targets + 1] = part
+
+        local function consider(child)
+            if not child or seen[child] then
+                return
+            end
+            if not FM.isCrystal(child) or FM.getAttr(child, "Collected") == true then
+                return
+            end
+
+            -- ONLY crystals in DroppedCrystals folder (not mountain crystals)
+            if not FM.isInDroppedFolder(child) then
+                return
+            end
+
+            -- Prefer crystals we actually dropped; if no history, still allow DroppedCrystals only
+            local hasHistory = S.recentDrops and #S.recentDrops > 0
+            if hasHistory and not FM.isOurRecentDrop(child, 180) then
+                return
+            end
+
+            -- Optional value/luck filter if those toggles are on
+            if (S.pickupValueActive or S.pickupLuckActive) and not FM.valueLuckFilter(child) then
+                return
+            end
+
+            local pos = child:IsA("BasePart") and child.Position
+            if not pos then
+                return
+            end
+            if (pos - origin).Magnitude > radius then
+                return
+            end
+
+            seen[child] = true
+            targets[#targets + 1] = {
+                inst = child,
+                value = FM.crystalValue(child),
+                distance = (pos - origin).Magnitude,
+            }
+        end
+
+        -- Scan DroppedCrystals folder only (do NOT broad-scan whole world)
+        local function scanDroppedFolder(folder)
+            if not folder then
+                return
+            end
+            for _, child in ipairs(folder:GetDescendants()) do
+                if child:IsA("BasePart") then
+                    consider(child)
                 end
             end
         end
 
-        -- also scan common drop folders
-        for _, folderName in ipairs({ "DroppedCrystals", "Crystals", "Things" }) do
-            local folder = Workspace:FindFirstChild(folderName)
-            if folder then
-                for _, child in ipairs(folder:GetDescendants()) do
-                    if FM.isCrystal(child) and FM.getAttr(child, "Collected") ~= true and not seen[child] then
-                        local pos = child:IsA("BasePart") and child.Position
-                        if pos and (pos - root.Position).Magnitude <= radius then
-                            seen[child] = true
-                            targets[#targets + 1] = child
-                        end
-                    end
-                end
-            end
+        scanDroppedFolder(Workspace:FindFirstChild("DroppedCrystals"))
+        local things = Workspace:FindFirstChild("Things")
+        if things then
+            scanDroppedFolder(things:FindFirstChild("DroppedCrystals"))
         end
+
+        table.sort(targets, function(a, b)
+            if a.value == b.value then
+                return a.distance < b.distance
+            end
+            return a.value > b.value
+        end)
 
         local picked = 0
-        for _, crystal in ipairs(targets) do
+        local burst = 0
+        local burstLimit = timing.pickBurst
+
+        for _, entry in ipairs(targets) do
             if S._stopCrystalOps then
                 break
             end
+            local crystal = entry.inst
             if not crystal.Parent or FM.getAttr(crystal, "Collected") == true then
                 continue
             end
 
-            -- No teleport (less suspicious) — only fire nearby prompts
             local prompt = FM.crystalPrompt(crystal)
             if prompt then
                 FM.instantPromptPatch(prompt)
             end
-            if grabCrystal and FM.grabCrystal(crystal, prompt) then
-                picked += 1
-            elseif prompt and FM.firePrompt(prompt) then
-                picked += 1
+            local ok = FM.grabCrystal(crystal, prompt)
+            if not ok and prompt then
+                ok = FM.firePrompt(prompt)
             end
-            task.wait(1.2)
+            if ok then
+                picked += 1
+                burst += 1
+            end
+
+            if burst >= burstLimit then
+                burst = 0
+                task.wait(timing.pickGap)
+            elseif (S.pickupMode or "Legit") == "Legit" then
+                task.wait(timing.pickGap)
+            end
         end
 
         S._pickingDropped = false
         WindUI:Notify({
-            Title = "Pickup Crystals",
-            Content = string.format("Picked %d nearby", picked),
+            Title = "Pickup Dropped",
+            Content = string.format("Picked %d valid drop(s) [%s]", picked, S.pickupMode or "Legit"),
             Duration = 2,
             Icon = picked > 0 and "check" or "alert-circle",
         })
@@ -4813,7 +4948,7 @@ do
         })
 
         PickupBox:Dropdown({
-            Title = "Pickup Mode (Value/Luck)",
+            Title = "Mode Global (Legit/Burst)",
             Values = { "Legit", "Burst" },
             Value = "Legit",
             Callback = function(option)
@@ -7831,9 +7966,15 @@ do
             task.spawn(function()
                 local placed = 0
                 local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                -- Faster but still reliable (was 1.5s — too slow / still missed)
+                local equipTimeout = 0.35
+                local placeGap = 0.45
 
                 for _, runeName in ipairs(names) do
                     for i = 1, amount do
+                        if S._stopCrystalOps then
+                            break
+                        end
                         local tool = findRuneToolByName(runeName)
                         if not tool then
                             break
@@ -7843,7 +7984,14 @@ do
                             pcall(function()
                                 humanoid:EquipTool(tool)
                             end)
-                            task.wait(0.2)
+                            local waited = 0
+                            while waited < equipTimeout do
+                                task.wait(0.05)
+                                waited += 0.05
+                                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(runeName) then
+                                    break
+                                end
+                            end
                         end
 
                         local held = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(runeName)
@@ -7852,19 +8000,25 @@ do
                             break
                         end
 
-                        local pos = placementWorldPos(toolSize(held))
-                        local yaw = math.random() * math.pi * 2
+                        local success = false
+                        for attempt = 1, 3 do
+                            local pos = placementWorldPos(toolSize(held))
+                            local yaw = math.random() * math.pi * 2
+                            local ok = pcall(function()
+                                remote:FireServer(held.Name, pos, yaw, held)
+                            end)
+                            if ok then
+                                success = true
+                                break
+                            end
+                            task.wait(0.08)
+                        end
 
-                        local ok = pcall(function()
-                            remote:FireServer(held.Name, pos, yaw, held)
-                        end)
-
-                        if ok then
+                        if success then
                             placed += 1
                         end
 
-                        -- 1.5s gap between each place remote
-                        task.wait(1.5)
+                        task.wait(placeGap)
                     end
                 end
 
