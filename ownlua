@@ -1324,7 +1324,6 @@ function FM.applyRadarGradient(label, style)
 end
 
 function FM.createEntry(inst)
-    local style = RADAR_STYLE.Crystal
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "FayyMengEsp"
     billboard.Adornee = inst
@@ -1337,13 +1336,9 @@ function FM.createEntry(inst)
     billboard.Parent = EspHolder
 
     local textSize = FM.crystalTextSize()
-    -- Line 0: radar-style title / rarity (gradient)
-    local rarity, rarityConstraint = FM.newLabel("Rarity", billboard, 0, 3, style.a, false, textSize)
-    FM.applyRadarGradient(rarity, style)
-    -- Line 1: value / weight (cyan-pink secondary)
-    local info, infoConstraint = FM.newLabel("Info", billboard, 1, 3, style.b, false, textSize)
-    -- Line 2: distance + luck
-    local extra, extraConstraint = FM.newLabel("Extra", billboard, 2, 3, Color3.fromRGB(191, 199, 218), true, textSize)
+    local rarity, rarityConstraint = FM.newLabel("Rarity", billboard, 0, 3, COLORS.default, false, textSize)
+    local info, infoConstraint = FM.newLabel("Info", billboard, 1, 3, COLORS.money, false, textSize)
+    local extra, extraConstraint = FM.newLabel("Extra", billboard, 2, 3, COLORS.extra, true, textSize)
 
     return {
         gui = billboard,
@@ -1354,7 +1349,6 @@ function FM.createEntry(inst)
         signature = false,
         luckText = "+0%",
         distanceText = false,
-        radarStyle = style,
     }
 end
 
@@ -1405,7 +1399,7 @@ function FM.applyExtra(entry, distanceText)
     entry.distanceText = distanceText
     entry.extra.Text = string.format(
         '<font color="#%s">%s</font>  \u{2022}  <font color="#%s">%s</font>',
-        (RADAR_STYLE.Crystal and RADAR_STYLE.Crystal.hex) or COLORS.hexDistance,
+        COLORS.hexDistance,
         distanceText,
         COLORS.hexLuck,
         entry.luckText
@@ -1688,9 +1682,8 @@ function FM.createLuckEntry(inst)
     billboard.Parent = EspHolder
 
     local textSize = FM.crystalTextSize()
-    local label, constraint = FM.newLabel("Luck", billboard, 0, 2, RADAR_STYLE.Luck.a, false, textSize)
-    FM.applyRadarGradient(label, RADAR_STYLE.Luck)
-    local distLabel, distConstraint = FM.newLabel("Distance", billboard, 1, 2, Color3.fromRGB(191, 199, 218), false, textSize)
+    local label, constraint = FM.newLabel("Luck", billboard, 0, 2, Color3.fromRGB(255, 196, 0), false, textSize)
+    local distLabel, distConstraint = FM.newLabel("Distance", billboard, 1, 2, COLORS.extra, false, textSize)
 
     return {
         gui = billboard,
@@ -3880,42 +3873,41 @@ end
 
 do
     local function install()
-        -- Colors aligned with game BoulderRadar HUD (gold / amber family)
         local BOULDER_INFO = {
             Mossite = {
                 rarity = "Common",
                 pickaxe = "Titanium Spike",
                 crystals = "8-11",
                 runes = "Luck / Haste",
-                color = Color3.fromRGB(255, 225, 160),
+                color = Color3.fromRGB(150, 220, 120),
             },
             Voltite = {
                 rarity = "Uncommon",
                 pickaxe = "Celestial Apex",
                 crystals = "10-14",
                 runes = "Storm / Weight",
-                color = Color3.fromRGB(255, 200, 110),
+                color = Color3.fromRGB(110, 190, 240),
             },
             Gildrite = {
                 rarity = "Rare",
                 pickaxe = "Eclipse Fang",
                 crystals = "11-15",
                 runes = "Fortune / Detonation",
-                color = Color3.fromRGB(255, 185, 70),
+                color = Color3.fromRGB(255, 200, 60),
             },
             Rimeveil = {
                 rarity = "Epic",
                 pickaxe = "Voidreign",
                 crystals = "13-18",
                 runes = "Preservation / Warmth",
-                color = Color3.fromRGB(220, 150, 70),
+                color = Color3.fromRGB(170, 100, 255),
             },
             Nocturnite = {
                 rarity = "Legendary",
                 pickaxe = "The Terminus",
                 crystals = "16-22",
                 runes = "Excavator / Colossus",
-                color = Color3.fromRGB(190, 120, 55),
+                color = Color3.fromRGB(255, 80, 180),
             },
         }
 
@@ -3956,7 +3948,6 @@ do
         end
 
         local function createCard(anchor, offset, colors, width, height)
-            local style = RADAR_STYLE.Boulder
             local billboard = Instance.new("BillboardGui")
             billboard.Name = "FayyMengMountainEsp"
             billboard.Adornee = anchor
@@ -3974,33 +3965,27 @@ do
             local constraints = {}
 
             for index, color in ipairs(colors) do
-                -- mix toward radar gold/amber
-                local c = color
-                if index == 1 then
-                    c = style.a
-                elseif index == 2 then
-                    c = style.b
-                else
-                    c = Color3.fromRGB(255, 235, 200)
-                end
-                local label, constraint = FM.newLabel("Line" .. index, billboard, index - 1, total, c, false, size)
-                if index == 1 then
-                    FM.applyRadarGradient(label, style)
-                end
+                local label, constraint = FM.newLabel("Line" .. index, billboard, index - 1, total, color, false, size)
                 labels[index] = label
                 constraints[index] = constraint
             end
 
-            -- soft world highlight like radar ping
+            -- Outline so invisible (pre-hit) boulders stay visible
             local highlight = nil
+            local model = anchor
+            if anchor and anchor.Parent and anchor.Parent:IsA("Model") then
+                model = anchor.Parent
+            elseif anchor and not anchor:IsA("Model") then
+                model = anchor
+            end
             pcall(function()
                 highlight = Instance.new("Highlight")
-                highlight.Name = "FayyMengRadarHighlight"
-                highlight.Adornee = anchor.Parent or anchor
-                highlight.FillColor = style.fill
-                highlight.OutlineColor = style.a
-                highlight.FillTransparency = 0.72
-                highlight.OutlineTransparency = 0.25
+                highlight.Name = "FayyMengBoulderOutline"
+                highlight.Adornee = model
+                highlight.FillColor = colors[1] or Color3.fromRGB(255, 255, 255)
+                highlight.OutlineColor = colors[1] or Color3.fromRGB(255, 255, 255)
+                highlight.FillTransparency = 0.85
+                highlight.OutlineTransparency = 0
                 highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                 highlight.Parent = EspHolder
             end)
@@ -4252,7 +4237,7 @@ do
                 end
 
                 scaleCard(entry)
-                setLine(entry, 1, string.format("BOULDER  ·  %s  ·  %s", kind:upper(), info.rarity:upper()))
+                setLine(entry, 1, string.format("[%s] %s", info.rarity, kind))
                 setLine(entry, 2, string.format("%s  \u{2022}  %s crystals", info.pickaxe, info.crystals))
 
                 local distance = origin and FM.formatDistance((anchor.Position - origin).Magnitude) or "--"
@@ -5663,7 +5648,7 @@ do
         })
 
         MoveBox:Toggle({
-            Title = "Invisible (IY)",
+            Title = "Invisible",
             Value = false,
             Callback = function(value)
                 if FM.setInvisible then
@@ -10189,71 +10174,91 @@ end
 -- Silent local-only invis helpers (see notes in chat; not true global invis)
 -- Infinite Yield style invisible (clone char → Lighting) but keep LocalPlayer.Character
 -- on the visible clone so dig / farm / tools still work.
+-- Invisible: stay at current position. Only hide body (Transparency).
+-- Does NOT move character to Lighting/void so dig/farm/remotes still validate.
 function FM.setLocalInvisible(on)
     S._localInvis = on == true
-    -- soft local-only fade (always safe)
     local character = LocalPlayer.Character
-    if character then
-        for _, d in ipairs(character:GetDescendants()) do
-            if d:IsA("BasePart") then
-                pcall(function()
-                    d.LocalTransparencyModifier = S._localInvis and 1 or 0
-                end)
-            elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then
-                pcall(function()
-                    d.Enabled = not S._localInvis
-                end)
+    if not character then
+        return
+    end
+    for _, d in ipairs(character:GetDescendants()) do
+        if d:IsA("BasePart") then
+            pcall(function()
+                -- keep HRP fully transparent always; others fade when invis
+                if d.Name == "HumanoidRootPart" then
+                    d.Transparency = 1
+                elseif S._localInvis then
+                    if d:GetAttribute("_fmOrigTrans") == nil then
+                        d:SetAttribute("_fmOrigTrans", d.Transparency)
+                    end
+                    d.Transparency = 1
+                    d.LocalTransparencyModifier = 0
+                else
+                    local orig = d:GetAttribute("_fmOrigTrans")
+                    if typeof(orig) == "number" then
+                        d.Transparency = orig
+                    else
+                        d.Transparency = 0
+                    end
+                    d.LocalTransparencyModifier = 0
+                end
+            end)
+        elseif d:IsA("Decal") or d:IsA("Texture") then
+            pcall(function()
+                if S._localInvis then
+                    if d:GetAttribute("_fmOrigTrans") == nil then
+                        d:SetAttribute("_fmOrigTrans", d.Transparency)
+                    end
+                    d.Transparency = 1
+                else
+                    local orig = d:GetAttribute("_fmOrigTrans")
+                    d.Transparency = typeof(orig) == "number" and orig or 0
+                end
+            end)
+        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Fire") or d:IsA("Smoke") then
+            pcall(function()
+                d.Enabled = not S._localInvis
+            end)
+        end
+    end
+    -- hide accessories / clothing visually
+    for _, d in ipairs(character:GetChildren()) do
+        if d:IsA("Accessory") or d:IsA("Shirt") or d:IsA("Pants") or d:IsA("ShirtGraphic") then
+            for _, p in ipairs(d:GetDescendants()) do
+                if p:IsA("BasePart") or p:IsA("Decal") or p:IsA("Texture") then
+                    pcall(function()
+                        p.Transparency = S._localInvis and 1 or (p:GetAttribute("_fmOrigTrans") or 0)
+                    end)
+                end
             end
         end
     end
 end
 
 function FM.turnVisible()
-    if not S._iyInvis then
-        return
-    end
-    local st = S._iyInvis
-    S._iyInvis = nil
-    pcall(function()
-        if st.fix then st.fix:Disconnect() end
-        if st.died then st.died:Disconnect() end
-    end)
-    local real = st.real
-    local clone = st.clone
-    local cf = nil
-    pcall(function()
-        local root = FM.getRoot()
-        if root then cf = root.CFrame end
-    end)
-    pcall(function()
-        if clone and clone.Parent then
-            if cf and clone:FindFirstChild("HumanoidRootPart") then
-                clone.HumanoidRootPart.CFrame = cf
-            end
-            if real then
-                if real:FindFirstChild("HumanoidRootPart") and cf then
-                    real.HumanoidRootPart.CFrame = cf
-                end
-                real.Parent = Workspace
-                LocalPlayer.Character = real
-            end
-            clone:Destroy()
-        elseif real then
-            real.Parent = Workspace
-            LocalPlayer.Character = real
-        end
-    end)
-    task.defer(function()
-        FM.bindCharacter(LocalPlayer.Character)
-        if S._speedWanted or S.speedActive then
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if hum then
-                FM.watchSpeed(hum)
-                FM.enforceSpeed(hum)
-            end
-        end
-    end)
     S._invisWanted = false
+    S._localInvis = false
+    -- cleanup any leftover IY clone state from older builds
+    if S._iyInvis then
+        local st = S._iyInvis
+        S._iyInvis = nil
+        pcall(function()
+            if st.fix then st.fix:Disconnect() end
+            if st.died then st.died:Disconnect() end
+            if st.clone and st.clone.Parent then
+                st.clone:Destroy()
+            end
+            if st.real then
+                st.real.Parent = Workspace
+                LocalPlayer.Character = st.real
+            end
+        end)
+        task.defer(function()
+            FM.bindCharacter(LocalPlayer.Character)
+        end)
+    end
+    FM.setLocalInvisible(false)
 end
 
 function FM.setInvisible(on)
@@ -10261,105 +10266,37 @@ function FM.setInvisible(on)
     S._invisWanted = on
     if not on then
         FM.turnVisible()
-        FM.setLocalInvisible(false)
         return
     end
+    -- IMPORTANT: do not clone / do not teleport character.
+    -- Stay exactly where you are so DigRequest / farm / prompts keep working.
     if S._iyInvis then
-        return
+        FM.turnVisible()
+        S._invisWanted = true
     end
+    FM.setLocalInvisible(true)
 
-    local Player = LocalPlayer
-    local Character = Player.Character
-    if not Character then
-        return
+    -- keep re-applying while wanted (respawn / tool equip can restore meshes)
+    if S._invisConn then
+        pcall(function() S._invisConn:Disconnect() end)
+        S._invisConn = nil
     end
-    local hum = Character:FindFirstChildOfClass("Humanoid")
-    local root = Character:FindFirstChild("HumanoidRootPart")
-    if not hum or not root then
-        return
-    end
-
-    pcall(function() Character.Archivable = true end)
-    local InvisibleCharacter = Character:Clone()
-    InvisibleCharacter.Name = Character.Name
-    for _, v in ipairs(InvisibleCharacter:GetDescendants()) do
-        if v:IsA("BasePart") then
-            if v.Name == "HumanoidRootPart" then
-                v.Transparency = 1
-            else
-                v.Transparency = 0.5
+    S._invisConn = RunService.Heartbeat:Connect(function()
+        if not S._invisWanted then
+            if S._invisConn then
+                S._invisConn:Disconnect()
+                S._invisConn = nil
             end
-        end
-    end
-
-    local CF_1 = root.CFrame
-    local Lighting = game:GetService("Lighting")
-    pcall(function()
-        Character:MoveTo(Vector3.new(0, 9e8, 0))
-    end)
-    task.wait(0.15)
-    Character.Parent = Lighting
-    InvisibleCharacter.Parent = Workspace
-    local iroot = InvisibleCharacter:FindFirstChild("HumanoidRootPart")
-    if iroot then
-        iroot.CFrame = CF_1
-    end
-    Player.Character = InvisibleCharacter
-    -- re-enable animate so movement/farm anims work
-    local anim = InvisibleCharacter:FindFirstChild("Animate")
-    if anim then
-        anim.Disabled = true
-        anim.Disabled = false
-    end
-
-    local fixConn
-    fixConn = RunService.Stepped:Connect(function()
-        if not S._iyInvis then
             return
         end
-        pcall(function()
-            local ch = Player.Character
-            local h = ch and ch:FindFirstChildOfClass("Humanoid")
-            local r = ch and ch:FindFirstChild("HumanoidRootPart")
-            if not h or not r then return end
-            local voidY = Workspace.FallenPartsDestroyHeight
-            if typeof(voidY) == "number" and r.Position.Y <= voidY + 5 then
-                FM.turnVisible()
-            end
-        end)
-    end)
-
-    local diedConn
-    local ih = InvisibleCharacter:FindFirstChildOfClass("Humanoid")
-    if ih then
-        diedConn = ih.Died:Connect(function()
-            FM.turnVisible()
-        end)
-    end
-
-    S._iyInvis = {
-        real = Character,
-        clone = InvisibleCharacter,
-        fix = fixConn,
-        died = diedConn,
-    }
-
-    task.defer(function()
-        FM.bindCharacter(InvisibleCharacter)
-        if S._speedWanted or S.speedActive then
-            local h = InvisibleCharacter:FindFirstChildOfClass("Humanoid")
-            if h then
-                FM.watchSpeed(h)
-                FM.enforceSpeed(h)
-            end
+        S._invisAcc = (S._invisAcc or 0) + 0.016
+        if S._invisAcc < 0.35 then
+            return
         end
+        S._invisAcc = 0
+        FM.setLocalInvisible(true)
     end)
-
-    -- also local fade on clone
-    FM.setLocalInvisible(true)
 end
-
-
 
 -- ========== Final GUI bootstrap (Shop + Teleports) — WindUI V2 ==========
 task.defer(function()
