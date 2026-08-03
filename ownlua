@@ -5648,7 +5648,7 @@ do
         })
 
         MoveBox:Toggle({
-            Title = "Invisible",
+            Title = "Invisible (Others)",
             Value = false,
             Callback = function(value)
                 if FM.setInvisible then
@@ -10176,7 +10176,12 @@ end
 -- on the visible clone so dig / farm / tools still work.
 -- Invisible: stay at current position. Only hide body (Transparency).
 -- Does NOT move character to Lighting/void so dig/farm/remotes still validate.
+-- Invisible (IY-style): other players don't see you at your real spot.
+-- Real character stays parented in Lighting (hidden) but its RootPart CFrame is
+-- synced every frame to the local clone so DigRequest / farm / prompts still
+-- validate on the server at your actual play position.
 function FM.setLocalInvisible(on)
+    -- soft local fade on whatever is currently LocalPlayer.Character
     S._localInvis = on == true
     local character = LocalPlayer.Character
     if not character then
@@ -10185,80 +10190,83 @@ function FM.setLocalInvisible(on)
     for _, d in ipairs(character:GetDescendants()) do
         if d:IsA("BasePart") then
             pcall(function()
-                -- keep HRP fully transparent always; others fade when invis
                 if d.Name == "HumanoidRootPart" then
                     d.Transparency = 1
-                elseif S._localInvis then
-                    if d:GetAttribute("_fmOrigTrans") == nil then
-                        d:SetAttribute("_fmOrigTrans", d.Transparency)
-                    end
-                    d.Transparency = 1
-                    d.LocalTransparencyModifier = 0
                 else
-                    local orig = d:GetAttribute("_fmOrigTrans")
-                    if typeof(orig) == "number" then
-                        d.Transparency = orig
-                    else
-                        d.Transparency = 0
-                    end
-                    d.LocalTransparencyModifier = 0
+                    d.LocalTransparencyModifier = S._localInvis and 1 or 0
                 end
             end)
-        elseif d:IsA("Decal") or d:IsA("Texture") then
-            pcall(function()
-                if S._localInvis then
-                    if d:GetAttribute("_fmOrigTrans") == nil then
-                        d:SetAttribute("_fmOrigTrans", d.Transparency)
-                    end
-                    d.Transparency = 1
-                else
-                    local orig = d:GetAttribute("_fmOrigTrans")
-                    d.Transparency = typeof(orig) == "number" and orig or 0
-                end
-            end)
-        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Fire") or d:IsA("Smoke") then
+        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then
             pcall(function()
                 d.Enabled = not S._localInvis
             end)
-        end
-    end
-    -- hide accessories / clothing visually
-    for _, d in ipairs(character:GetChildren()) do
-        if d:IsA("Accessory") or d:IsA("Shirt") or d:IsA("Pants") or d:IsA("ShirtGraphic") then
-            for _, p in ipairs(d:GetDescendants()) do
-                if p:IsA("BasePart") or p:IsA("Decal") or p:IsA("Texture") then
-                    pcall(function()
-                        p.Transparency = S._localInvis and 1 or (p:GetAttribute("_fmOrigTrans") or 0)
-                    end)
-                end
-            end
         end
     end
 end
 
 function FM.turnVisible()
     S._invisWanted = false
-    S._localInvis = false
-    -- cleanup any leftover IY clone state from older builds
-    if S._iyInvis then
-        local st = S._iyInvis
-        S._iyInvis = nil
-        pcall(function()
-            if st.fix then st.fix:Disconnect() end
-            if st.died then st.died:Disconnect() end
-            if st.clone and st.clone.Parent then
-                st.clone:Destroy()
-            end
-            if st.real then
-                st.real.Parent = Workspace
-                LocalPlayer.Character = st.real
-            end
-        end)
-        task.defer(function()
-            FM.bindCharacter(LocalPlayer.Character)
-        end)
+    if S._invisConn then
+        pcall(function() S._invisConn:Disconnect() end)
+        S._invisConn = nil
     end
-    FM.setLocalInvisible(false)
+    if S._invisStepped then
+        pcall(function() S._invisStepped:Disconnect() end)
+        S._invisStepped = nil
+    end
+
+    local st = S._iyInvis
+    S._iyInvis = nil
+    if not st then
+        FM.setLocalInvisible(false)
+        return
+    end
+
+    pcall(function()
+        if st.fix then st.fix:Disconnect() end
+        if st.died then st.died:Disconnect() end
+        if st.sync then st.sync:Disconnect() end
+    end)
+
+    local real = st.real
+    local clone = st.clone
+    local cf = nil
+    pcall(function()
+        local r = clone and clone:FindFirstChild("HumanoidRootPart")
+        if r then cf = r.CFrame end
+        if not cf then
+            local r2 = FM.getRoot()
+            if r2 then cf = r2.CFrame end
+        end
+    end)
+
+    pcall(function()
+        if clone and clone.Parent then
+            if real then
+                if cf and real:FindFirstChild("HumanoidRootPart") then
+                    real.HumanoidRootPart.CFrame = cf
+                end
+                real.Parent = Workspace
+                LocalPlayer.Character = real
+            end
+            clone:Destroy()
+        elseif real then
+            real.Parent = Workspace
+            LocalPlayer.Character = real
+        end
+    end)
+
+    task.defer(function()
+        FM.bindCharacter(LocalPlayer.Character)
+        FM.setLocalInvisible(false)
+        if S._speedWanted or S.speedActive then
+            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                FM.watchSpeed(hum)
+                FM.enforceSpeed(hum)
+            end
+        end
+    end)
 end
 
 function FM.setInvisible(on)
@@ -10268,33 +10276,139 @@ function FM.setInvisible(on)
         FM.turnVisible()
         return
     end
-    -- IMPORTANT: do not clone / do not teleport character.
-    -- Stay exactly where you are so DigRequest / farm / prompts keep working.
     if S._iyInvis then
-        FM.turnVisible()
-        S._invisWanted = true
+        return -- already invisible
     end
-    FM.setLocalInvisible(true)
 
-    -- keep re-applying while wanted (respawn / tool equip can restore meshes)
-    if S._invisConn then
-        pcall(function() S._invisConn:Disconnect() end)
-        S._invisConn = nil
+    local Player = LocalPlayer
+    local Character = Player.Character
+    if not Character then
+        return
     end
-    S._invisConn = RunService.Heartbeat:Connect(function()
-        if not S._invisWanted then
-            if S._invisConn then
-                S._invisConn:Disconnect()
-                S._invisConn = nil
+    local hum = Character:FindFirstChildOfClass("Humanoid")
+    local root = Character:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then
+        return
+    end
+
+    pcall(function() Character.Archivable = true end)
+    local CF_1 = root.CFrame
+
+    local InvisibleCharacter = Character:Clone()
+    InvisibleCharacter.Name = Character.Name
+    -- local ghost slightly transparent so YOU can still see yourself; others see real char in Lighting
+    for _, v in ipairs(InvisibleCharacter:GetDescendants()) do
+        if v:IsA("BasePart") then
+            if v.Name == "HumanoidRootPart" then
+                v.Transparency = 1
+            else
+                v.Transparency = 0.35
             end
+            v.CanCollide = (v.Name == "HumanoidRootPart") and false or v.CanCollide
+        end
+    end
+    -- ensure clone humanoid can move / animate
+    local ih = InvisibleCharacter:FindFirstChildOfClass("Humanoid")
+    if ih then
+        ih.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    end
+
+    local Lighting = game:GetService("Lighting")
+
+    -- hide real body from other players (park in Lighting) — classic IY
+    pcall(function()
+        Character:MoveTo(Vector3.new(0, 9e8, 0))
+    end)
+    task.wait(0.12)
+    Character.Parent = Lighting
+
+    -- control the clone in workspace
+    InvisibleCharacter.Parent = Workspace
+    local iroot = InvisibleCharacter:FindFirstChild("HumanoidRootPart")
+    if iroot then
+        iroot.CFrame = CF_1
+    end
+    Player.Character = InvisibleCharacter
+
+    local anim = InvisibleCharacter:FindFirstChild("Animate")
+    if anim then
+        anim.Disabled = true
+        anim.Disabled = false
+    end
+
+    -- CRITICAL: keep real RootPart aligned with clone every frame
+    -- so server-side dig / interact / farm distance checks still pass
+    local syncConn
+    syncConn = RunService.Heartbeat:Connect(function()
+        if not S._iyInvis or not S._invisWanted then
             return
         end
-        S._invisAcc = (S._invisAcc or 0) + 0.016
-        if S._invisAcc < 0.35 then
+        pcall(function()
+            local real = S._iyInvis.real
+            local clone = S._iyInvis.clone
+            if not real or not clone then
+                return
+            end
+            local rr = real:FindFirstChild("HumanoidRootPart")
+            local cr = clone:FindFirstChild("HumanoidRootPart")
+            if rr and cr then
+                rr.CFrame = cr.CFrame
+                rr.AssemblyLinearVelocity = cr.AssemblyLinearVelocity
+                rr.AssemblyAngularVelocity = Vector3.zero
+            end
+            -- keep tools mirrored: if clone has a tool, ensure real has same tool name parented for server
+            local cloneTool = clone:FindFirstChildOfClass("Tool")
+            if cloneTool then
+                local backpack = Player:FindFirstChildOfClass("Backpack")
+                local realTool = real:FindFirstChild(cloneTool.Name)
+                if not realTool and backpack then
+                    local bpTool = backpack:FindFirstChild(cloneTool.Name)
+                    -- leave backpack tools; DigRequest uses name string so FireServer still works
+                end
+            end
+        end)
+    end)
+
+    local fixConn
+    fixConn = RunService.Stepped:Connect(function()
+        if not S._iyInvis then
             return
         end
-        S._invisAcc = 0
-        FM.setLocalInvisible(true)
+        pcall(function()
+            local ch = Player.Character
+            local r = ch and ch:FindFirstChild("HumanoidRootPart")
+            if not r then return end
+            local voidY = Workspace.FallenPartsDestroyHeight
+            if typeof(voidY) == "number" and r.Position.Y <= voidY + 5 then
+                FM.turnVisible()
+            end
+        end)
+    end)
+
+    local diedConn
+    if ih then
+        diedConn = ih.Died:Connect(function()
+            FM.turnVisible()
+        end)
+    end
+
+    S._iyInvis = {
+        real = Character,
+        clone = InvisibleCharacter,
+        fix = fixConn,
+        died = diedConn,
+        sync = syncConn,
+    }
+
+    task.defer(function()
+        FM.bindCharacter(InvisibleCharacter)
+        if S._speedWanted or S.speedActive then
+            local h = InvisibleCharacter:FindFirstChildOfClass("Humanoid")
+            if h then
+                FM.watchSpeed(h)
+                FM.enforceSpeed(h)
+            end
+        end
     end)
 end
 
