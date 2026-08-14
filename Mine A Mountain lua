@@ -1,1 +1,1 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineAMountain%202"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineAMountain.lua"))()
