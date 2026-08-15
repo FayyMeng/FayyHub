@@ -1,2 +1,2 @@
 task.wait(10)
-loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineAMountain"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/%F0%9F%98%B4%F0%9F%98%B4"))()
