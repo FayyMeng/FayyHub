@@ -15,7 +15,7 @@ local function executeOnce()
     executed = true
 
     pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/Mine%20A%20Mountain%20lua"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineV2"))()
     end)
 
     _G.__ChunkLoadWatch.token = myToken + 1
