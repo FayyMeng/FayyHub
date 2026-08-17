@@ -1,2 +1,53 @@
-task.wait(10)
-loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineV3"))()
+local hubLoaded = false
+local function scripthub()
+    if hubLoaded then return end
+    hubLoaded = true
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineV3"))()
+end
+
+local rs
+repeat task.wait(0.2)
+    local ok, v = pcall(function() return game:GetService("ReplicatedStorage") end)
+    if ok and v then rs = v end
+until rs
+
+local remotes
+repeat task.wait(0.2); remotes = rs:FindFirstChild("Remotes") until remotes
+
+local function remote(n)
+    local r
+    repeat task.wait(0.2); r = remotes:FindFirstChild(n) until r
+    return r
+end
+
+local state = "idle" -- idle -> loading -> done
+local last = -1
+
+remote("MountainResetStart").OnClientEvent:Connect(function()
+    if state == "loading" then return end
+    state = "loading"
+    last = -1
+    print("[LOAD] mountain generation started")
+end)
+
+remote("MountainResetProgress").OnClientEvent:Connect(function(v)
+    local pct = math.floor((tonumber(v) or 0) * 100)
+    if pct >= last + 5 or pct == 100 then
+        last = pct
+        print(("[LOAD] progress %d%%"):format(pct))
+    end
+end)
+
+remote("MountainResetEnd").OnClientEvent:Connect(function()
+    if state == "done" then return end
+    state = "done"
+    print("[LOAD] mountain fully loaded")
+    scripthub()
+end)
+
+task.delay(3, function()
+    if state == "idle" then
+        print("[LOAD] mountain already loaded")
+        scripthub()
+    end
+end)
