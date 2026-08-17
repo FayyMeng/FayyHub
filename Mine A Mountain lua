@@ -1,2 +1,64 @@
-task.wait(10)
-loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineV2"))()
+_G.__ChunkLoadWatch = _G.__ChunkLoadWatch or {}
+_G.__ChunkLoadWatch.token = (_G.__ChunkLoadWatch.token or 0) + 1
+
+local myToken = _G.__ChunkLoadWatch.token
+local Players = game:GetService("Players")
+local executed = false
+local startTime = os.clock()
+local noScreenTimeout = 5
+
+local function executeOnce()
+    if executed or _G.__ChunkLoadWatch.token ~= myToken then
+        return
+    end
+
+    executed = true
+
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/Mine%20A%20Mountain%20lua"))()
+    end)
+
+    _G.__ChunkLoadWatch.token = myToken + 1
+end
+
+task.spawn(function()
+    local prevEnabled = nil
+    local screenDetected = false
+
+    while not executed and _G.__ChunkLoadWatch.token == myToken do
+        task.wait(0.2)
+
+        if os.clock() - startTime >= 60 then
+            executeOnce()
+            break
+        end
+
+        local player = Players.LocalPlayer
+        if not player then
+            continue
+        end
+
+        local pg = player:FindFirstChildOfClass("PlayerGui")
+        local screen = pg and pg:FindFirstChild("MountainLoadingScreen")
+
+        if screen then
+            screenDetected = true
+
+            local enabled = screen.Enabled
+
+            if prevEnabled == nil then
+                prevEnabled = enabled
+            elseif not enabled and prevEnabled then
+                executeOnce()
+                break
+            end
+
+            prevEnabled = enabled
+        elseif not screenDetected and os.clock() - startTime >= noScreenTimeout then
+            executeOnce()
+            break
+        else
+            prevEnabled = nil
+        end
+    end
+end)
