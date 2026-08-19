@@ -2,7 +2,7 @@ local hubLoaded = false
 local function scripthub()
     if hubLoaded then return end
     hubLoaded = true
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineV4.1.lua"))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/FayyMeng/FayyHub/refs/heads/main/MineV4.1"))()
 end
 
 local rs
